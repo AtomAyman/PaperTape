@@ -1,0 +1,80 @@
+[
+  {
+    "id": "welcome_1",
+    "dbIndex": 600000,
+    "content": "Welcome to PaperTape 📼\n\nThe best way to use PaperTape is to never title a note, delete a note, or worry about organizing.\n\nEmbrace impermanence (and quick scratch ideas).\n\n[←] Swipe or ⌘+[ to see the next note in your deck.",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876173000,
+    "lastModified": 1775876173000
+  },
+  {
+    "id": "welcome_2",
+    "dbIndex": 500000,
+    "content": "Soulver Math & Percentages\n\nReactive percentage, currency, and variable math:\n\nsubtotal: $150\ntip: 20%\nsubtotal + tip =\n30% off $80 =\n25 as a % of 100 =\n\nIf you change the numbers, all calculated values update instantly!\n\n[←] Next",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876174000,
+    "lastModified": 1775876174000
+  },
+  {
+    "id": "welcome_3",
+    "dbIndex": 400000,
+    "content": "Dates, Durations & Time Zones\n\nCalculate dates and convert time zones naturally:\n\ntoday + 30 days\n90 days from Oct 1st\n9:30 am to 5:45 pm\n5pm EST in PST\n3pm Tokyo in London\n\n^ Live badge updates in the footer bar automatically!\n\n[←] Next",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876175000,
+    "lastModified": 1775876175000
+  },
+  {
+    "id": "welcome_4",
+    "dbIndex": 300000,
+    "content": "Interactive Timers\n\nType \"timer 5\" for a 5-minute countdown.\nType \"timer pomo\" for a classic 25-minute Pomodoro timer.\nType \"timer\" for a live stopwatch.\n\ntimer 5\ntimer pomo\n\nClick the play button on the timer pill to start!\n\n[←] Next",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876176000,
+    "lastModified": 1775876176000
+  },
+  {
+    "id": "welcome_5",
+    "dbIndex": 200000,
+    "content": "Checklists & Natural Day Reminders\n\nJot tasks with natural days or times and PaperTape automatically schedules them:\n\n- [ ] Buy groceries tomorrow at 10am\n- [ ] Submit quarterly invoice on friday\n- [ ] Follow up with design in 2 days\n\nWhen that day arrives, PaperTape sends a native macOS notification and plays a gentle chime!\n\n[←] Next",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876177000,
+    "lastModified": 1775876177000
+  },
+  {
+    "id": "welcome_6",
+    "dbIndex": 100000,
+    "content": "The 9 Permanent Slots (⌥1 - ⌥9)\n\nEphemeral scratches auto-purge after 7 or 30 days so clutter never piles up.\n\nUse the colored dots in the top bar (or ⌥1 to ⌥9) for permanent slots that never expire.\n\n⌘ + N : New note\n⌘ + D : Delete note\n⌘ + P : Pin / Detach floating window\n⌘ + S : Store note permanently in Vault\n⌘ + F : Search notes\n\nStart your first scratch note with ⌘ + N!",
+    "isArchived": false,
+    "isLocked": false,
+    "isPrivate": false,
+    "isSlotted": false,
+    "slotIndex": null,
+    "isPermanent": true,
+    "created": 1775876178000,
+    "lastModified": 1775876178000
+  }
+]

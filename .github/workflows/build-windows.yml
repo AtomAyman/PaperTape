@@ -1,0 +1,43 @@
+name: "Build Windows App"
+
+on:
+  push:
+    branches:
+      - main
+      - windows
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend & Windows binary
+        run: npm run build
+
+      - name: Build Tauri Windows Installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "PaperTape Windows v__VERSION__"
+          releaseBody: "PaperTape for Windows (x64 NSIS Setup & MSI installer)"
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc

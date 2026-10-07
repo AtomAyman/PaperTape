@@ -24,7 +24,6 @@
 * **📋 Clipboard Stream**: Optionally auto-capture copied snippets into a designated live feed without leaving your workflow.
 * **📑 9 Color-Coded Slots & Permanent Vault**: Organize multiple concurrent tasks or thoughts across 9 fast-switching slots, plus permanent Markdown document sync to `~/Documents/PaperTape/`.
 * **🎨 5 Thoughtful Themes**: Switch between *A24 Film Slate*, *Muad'Dib Desert*, *Tokyo Cyberpunk*, *Vintage Paper (Field Notes)*, and *Obsidian Noir*.
-* **⚡ Blazing Fast & Lightweight**: Migrated to **Tauri 2.0 and Rust**, slashing memory footprint and bundle size down from ~245 MB (Electron) to **< 30 MB**.
 * **🔒 100% Offline & Private**: Zero telemetry, zero cloud tracking, zero account sign-ins. Your notes stay entirely on your machine.
 
 ---

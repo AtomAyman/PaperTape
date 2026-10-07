@@ -20,21 +20,10 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": true,
-        "shadow": true,
+        "shadow": false,
         "alwaysOnTop": false,
-        "skipTaskbar": true
-      },
-      {
-        "label": "crop-overlay",
-        "url": "index.html#crop",
-        "title": "PaperTape Crop Overlay",
-        "fullscreen": true,
-        "resizable": false,
-        "transparent": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "visible": false,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "visible": false
       }
     ],
     "security": {

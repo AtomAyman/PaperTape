@@ -1,4 +1,5 @@
 import math
+import os
 import random
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -18,11 +19,9 @@ base_r, base_g, base_b = 168, 108, 64
 for y in range(HEIGHT):
     for x in range(WIDTH):
         v = random.randint(-22, 22)
-        # dark cork flecks
         if random.random() < 0.045:
             fleck = random.randint(-48, -26)
             pixels[x, y] = (max(0, base_r + fleck), max(0, base_g + fleck), max(0, base_b + fleck))
-        # light cork flecks
         elif random.random() < 0.035:
             fleck = random.randint(22, 42)
             pixels[x, y] = (min(255, base_r + fleck), min(255, base_g + fleck), min(255, base_b + fleck))
@@ -62,18 +61,12 @@ draw.text((WIDTH // 2, 70), "PaperTape", fill=(255, 248, 235, 255), font=font_ti
 draw.text((WIDTH // 2, 115), "Universal macOS Edition", fill=(245, 220, 190, 220), font=font_sub, anchor="mm")
 
 # Center Arrow between icons
-# Icon locations:
-# Left (PaperTape.app): x=160 (logical) -> 320 px. Radius ~ 55 points = 110 px. Bounds: 210 to 430 px.
-# Right (Applications): x=480 (logical) -> 960 px. Radius ~ 55 points = 110 px. Bounds: 850 to 1070 px.
-# Arrow span: from x = 500 px (logical 250) to x = 780 px (logical 390)
-# Arrow Center is exactly x = 640 px (logical 320)!
 arrow_y = 200 * scale # 400 px
 start_x = 510
 end_x = 770
 
-# Draw arrow with drop shadow
 arrow_shadow = (50, 25, 8, 160)
-arrow_color = (255, 235, 195, 240) # Warm cream/parchment tone
+arrow_color = (255, 235, 195, 240)
 
 draw.line([(start_x, arrow_y + 2), (end_x, arrow_y + 2)], fill=arrow_shadow, width=8)
 draw.line([(start_x, arrow_y), (end_x, arrow_y)], fill=arrow_color, width=8)
@@ -100,12 +93,11 @@ draw.polygon(head_pts, fill=arrow_color)
 draw.text((WIDTH // 2 + 1, 711), "Drag to Applications folder to install", fill=(60, 30, 10, 200), font=font_instruction, anchor="mm")
 draw.text((WIDTH // 2, 710), "Drag to Applications folder to install", fill=(255, 240, 215, 230), font=font_instruction, anchor="mm")
 
-# Save 2x image
-output_2x = "/tmp/dmg_background@2x.png"
+base_dir = os.path.dirname(os.path.abspath(__file__))
+output_2x = os.path.join(base_dir, "dmg_background@2x.png")
 img.convert("RGB").save(output_2x, "PNG")
 
-# Save 1x image downsampled
-output_1x = "/tmp/dmg_background.png"
+output_1x = os.path.join(base_dir, "dmg_background.png")
 img_1x = img.resize((W_LOGICAL, H_LOGICAL), Image.Resampling.LANCZOS)
 img_1x.convert("RGB").save(output_1x, "PNG")
 

@@ -5,8 +5,9 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
 #[derive(Default)]
@@ -70,6 +71,63 @@ fn get_papertape_dir() -> PathBuf {
     dir
 }
 
+fn position_below_tray(win: &WebviewWindow, tray_rect: &tauri::Rect) {
+    let Ok(scale) = win.scale_factor() else { return };
+    let current_size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(
+        (780.0 * scale) as u32,
+        (560.0 * scale) as u32,
+    ));
+    let win_w = current_size.width as f64;
+
+    let (tray_x, tray_y) = match tray_rect.position {
+        tauri::Position::Physical(p) => (p.x as f64, p.y as f64),
+        tauri::Position::Logical(l) => (l.x * scale, l.y * scale),
+    };
+    let (tray_w, tray_h) = match tray_rect.size {
+        tauri::Size::Physical(s) => (s.width as f64, s.height as f64),
+        tauri::Size::Logical(s) => (s.width * scale, s.height * scale),
+    };
+
+    let tray_center_x = tray_x + (tray_w / 2.0);
+    let target_x = tray_center_x - (win_w / 2.0);
+    let target_y = tray_y + tray_h + (4.0 * scale);
+
+    let clamped_x = if let Ok(Some(monitor)) = win.current_monitor().or_else(|_| win.primary_monitor()) {
+        let m_pos = monitor.position();
+        let m_size = monitor.size();
+        let min_x = m_pos.x as f64 + (10.0 * scale);
+        let max_x = (m_pos.x + m_size.width as i32) as f64 - win_w - (10.0 * scale);
+        target_x.max(min_x).min(max_x)
+    } else {
+        target_x
+    };
+
+    let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+        clamped_x as i32,
+        target_y as i32,
+    )));
+}
+
+fn position_at_top_right(win: &WebviewWindow) {
+    let Ok(scale) = win.scale_factor() else { return };
+    let current_size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(
+        (780.0 * scale) as u32,
+        (560.0 * scale) as u32,
+    ));
+    let win_w = current_size.width as f64;
+
+    if let Ok(Some(monitor)) = win.current_monitor().or_else(|_| win.primary_monitor()) {
+        let m_pos = monitor.position();
+        let m_size = monitor.size();
+        let target_x = (m_pos.x + m_size.width as i32) as f64 - win_w - (30.0 * scale);
+        let target_y = m_pos.y as f64 + (32.0 * scale);
+        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+            target_x as i32,
+            target_y as i32,
+        )));
+    }
+}
+
 #[tauri::command]
 fn toggle_pin(app: AppHandle, state: tauri::State<Arc<AppState>>) -> Result<bool, String> {
     let current = state.is_pinned.load(Ordering::SeqCst);
@@ -104,25 +162,27 @@ fn close_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_auto_clipboard(state: tauri::State<Arc<AppState>>, enabled: bool) {
+fn set_auto_clipboard(enabled: bool, state: tauri::State<Arc<AppState>>) -> Result<(), String> {
     state.auto_clipboard.store(enabled, Ordering::SeqCst);
+    Ok(())
 }
 
 #[tauri::command]
 fn save_markdown_note(note_data: MarkdownNoteData) -> Result<String, String> {
     let dir = get_papertape_dir();
-    let sanitized_title: String = note_data
+    let safe_title = note_data
         .title
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    let title = sanitized_title.trim();
-    let file_title = if title.is_empty() { "Untitled Note" } else { title };
-    let file_path = dir.join(format!("{}.md", file_title));
-
+        .replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '-' && c != '_', "")
+        .trim()
+        .to_string();
+    let file_name = if safe_title.is_empty() {
+        "Untitled.md".to_string()
+    } else {
+        format!("{}.md", safe_title)
+    };
+    let file_path = dir.join(file_name);
     std::fs::write(&file_path, note_data.content)
         .map_err(|e| format!("Failed to write note: {}", e))?;
-
     Ok(file_path.to_string_lossy().to_string())
 }
 
@@ -148,16 +208,13 @@ fn open_documents_folder() -> Result<(), String> {
 fn save_vault_backup(notes: serde_json::Value) -> Result<(), String> {
     let dir = get_papertape_dir();
     let vault_path = dir.join(".papertape_vault.json");
-    let tmp_path = dir.join(".papertape_vault.tmp");
-
+    let temp_path = dir.join(".papertape_vault.json.tmp");
     let serialized = serde_json::to_string_pretty(&notes)
         .map_err(|e| format!("Serialization error: {}", e))?;
-
-    std::fs::write(&tmp_path, serialized)
-        .map_err(|e| format!("Write tmp vault error: {}", e))?;
-    std::fs::rename(&tmp_path, &vault_path)
-        .map_err(|e| format!("Atomic rename vault error: {}", e))?;
-
+    std::fs::write(&temp_path, serialized)
+        .map_err(|e| format!("Failed to write temp vault: {}", e))?;
+    std::fs::rename(temp_path, vault_path)
+        .map_err(|e| format!("Failed to commit vault: {}", e))?;
     Ok(())
 }
 
@@ -165,18 +222,14 @@ fn save_vault_backup(notes: serde_json::Value) -> Result<(), String> {
 fn load_vault_backup() -> Result<serde_json::Value, String> {
     let dir = get_papertape_dir();
     let vault_path = dir.join(".papertape_vault.json");
-
     if !vault_path.exists() {
-        return Ok(serde_json::json!([]));
+        return Ok(serde_json::Value::Null);
     }
-
-    let content = std::fs::read_to_string(&vault_path)
+    let content = std::fs::read_to_string(vault_path)
         .map_err(|e| format!("Failed to read vault: {}", e))?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse vault JSON: {}", e))?;
-
-    Ok(parsed)
+    let notes: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse vault: {}", e))?;
+    Ok(notes)
 }
 
 #[tauri::command]
@@ -192,9 +245,48 @@ fn send_system_notification(app: AppHandle, data: NotificationPayload) -> Result
 
 #[tauri::command]
 fn capture_screenshot(app: AppHandle) -> Result<(), String> {
+    // Hide main window so it is not visible during framing
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.hide();
+    }
+
+    let (pos, size) = if let Ok(Some(monitor)) = app.primary_monitor() {
+        (
+            tauri::Position::Physical(monitor.position().clone()),
+            tauri::Size::Physical(monitor.size().clone()),
+        )
+    } else {
+        (
+            tauri::Position::Logical(tauri::LogicalPosition::new(0.0, 0.0)),
+            tauri::Size::Logical(tauri::LogicalSize::new(1920.0, 1080.0)),
+        )
+    };
+
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
+        let _ = crop_win.set_position(pos);
+        let _ = crop_win.set_size(size);
         let _ = crop_win.show();
         let _ = crop_win.set_focus();
+    } else {
+        let win = WebviewWindowBuilder::new(
+            &app,
+            "crop-overlay",
+            WebviewUrl::App("index.html#crop".into()),
+        )
+        .title("PaperTape Crop Overlay")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .build();
+
+        if let Ok(crop_win) = win {
+            let _ = crop_win.set_position(pos);
+            let _ = crop_win.set_size(size);
+            let _ = crop_win.show();
+            let _ = crop_win.set_focus();
+        }
     }
     Ok(())
 }
@@ -202,9 +294,10 @@ fn capture_screenshot(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn cancel_crop(app: AppHandle) -> Result<(), String> {
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
-        let _ = crop_win.hide();
+        let _ = crop_win.destroy();
     }
     if let Some(main_win) = app.get_webview_window("main") {
+        position_at_top_right(&main_win);
         let _ = main_win.show();
         let _ = main_win.set_focus();
     }
@@ -213,6 +306,15 @@ fn cancel_crop(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), String> {
+    // Destroy crop overlay window before capture so it doesn't appear in the image
+    if let Some(crop_win) = app.get_webview_window("crop-overlay") {
+        let _ = crop_win.destroy();
+    }
+
+    // Allow window server a brief moment to clear the overlay
+    #[cfg(target_os = "macos")]
+    std::thread::sleep(Duration::from_millis(80));
+
     let dir = get_papertape_dir();
     let screenshots_dir = dir.join("screenshots");
     let now = chrono::Local::now();
@@ -290,12 +392,7 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
         }
     }
 
-    // Hide crop overlay window
-    if let Some(crop_win) = app.get_webview_window("crop-overlay") {
-        let _ = crop_win.hide();
-    }
-
-    // Emit event to main window
+    // Emit event to main window and re-show it
     let timestamp = now.format("%I:%M %p").to_string();
     let shot_event = serde_json::json!({
         "filePath": file_path.to_string_lossy().to_string(),
@@ -305,6 +402,7 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
 
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.emit("screenshot-captured", shot_event);
+        position_at_top_right(&main_win);
         let _ = main_win.show();
         let _ = main_win.set_focus();
     }
@@ -361,18 +459,53 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Arc::clone(&app_state))
         .setup(move |app| {
             let app_handle = app.handle().clone();
 
-            #[cfg(target_os = "windows")]
-            {
-                if let Some(main_win) = app.get_webview_window("main") {
+            if let Some(main_win) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                {
                     let _ = window_vibrancy::apply_acrylic(&main_win, Some((20, 20, 25, 220)));
                 }
+
+                // Auto-hide when clicking away unless pinned
+                let win_clone = main_win.clone();
+                let state_clone = Arc::clone(&app_state);
+                main_win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(focused) = event {
+                        if !*focused && !state_clone.is_pinned.load(Ordering::SeqCst) {
+                            let _ = win_clone.hide();
+                        }
+                    }
+                });
             }
+
+            // Register default global shortcuts
+            let app_for_toggle = app_handle.clone();
+            let _ = app.global_shortcut().on_shortcut("Alt+A", move |_app, _sc, event| {
+                if event.state() == ShortcutState::Pressed {
+                    if let Some(win) = app_for_toggle.get_webview_window("main") {
+                        if win.is_visible().unwrap_or(false) {
+                            let _ = win.hide();
+                        } else {
+                            position_at_top_right(&win);
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                }
+            });
+
+            let app_for_crop = app_handle.clone();
+            let _ = app.global_shortcut().on_shortcut("Alt+Shift+S", move |_app, _sc, event| {
+                if event.state() == ShortcutState::Pressed {
+                    let _ = capture_screenshot(app_for_crop.clone());
+                }
+            });
 
             // Setup Tray Icon
             let toggle_item = MenuItem::with_id(app, "toggle", "Toggle PaperTape", true, None::<&str>)?;
@@ -392,16 +525,14 @@ pub fn run() {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else {
+                                position_at_top_right(&win);
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
                         }
                     }
                     "crop" => {
-                        if let Some(crop_win) = app.get_webview_window("crop-overlay") {
-                            let _ = crop_win.show();
-                            let _ = crop_win.set_focus();
-                        }
+                        let _ = capture_screenshot(app.clone());
                     }
                     "vault" => {
                         let _ = open_documents_folder();
@@ -415,6 +546,7 @@ pub fn run() {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
@@ -423,6 +555,7 @@ pub fn run() {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else {
+                                position_below_tray(&win, &rect);
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }

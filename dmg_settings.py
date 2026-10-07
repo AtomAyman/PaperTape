@@ -1,18 +1,20 @@
 import os
 
+base_dir = os.path.abspath(os.path.dirname(os.path.realpath('dmg_settings.py')))
+
 volume_name = 'PaperTape'
 format = 'UDZO'
 size = None
 
-app_path = '/Users/aymansuh/.gemini/antigravity/scratch/papertape-tauri/src-tauri/target/universal-apple-darwin/release/bundle/macos/PaperTape.app'
+app_path = os.path.join(base_dir, 'src-tauri/target/universal-apple-darwin/release/bundle/macos/PaperTape.app')
 files = [app_path]
 
 symlinks = {
     'Applications': '/Applications'
 }
 
-icon = '/Users/aymansuh/.gemini/antigravity/scratch/papertape-tauri/src-tauri/icons/icon.icns'
-badge_icon = '/Users/aymansuh/.gemini/antigravity/scratch/papertape-tauri/src-tauri/icons/icon.icns'
+icon = os.path.join(base_dir, 'src-tauri/icons/icon.icns')
+badge_icon = icon
 hide = ['.VolumeIcon.icns']
 
 icon_locations = {
@@ -20,7 +22,7 @@ icon_locations = {
     'Applications': (480, 200)
 }
 
-background = '/Users/aymansuh/.gemini/antigravity/scratch/papertape-tauri/dmg_background.png'
+background = os.path.join(base_dir, 'dmg_background.png')
 
 show_status_bar = False
 show_tab_view = False

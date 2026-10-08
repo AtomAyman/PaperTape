@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, Copy, X } from 'lucide-react';
+import { listen } from '@tauri-apps/api/event';
 import { isMac } from '../utils/platform';
 
 type DragMode = 'move' | 'draw' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null;
@@ -42,12 +43,28 @@ export const CropOverlay: React.FC = () => {
   const boxRef = useRef(box);
   boxRef.current = box;
   const isCapturingRef = useRef(false);
+  const [isFlashing, setIsFlashing] = useState(false);
+  const rafIdRef = useRef<number | null>(null);
+
+  // Listen for reset-crop event when window is re-shown
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen('reset-crop', () => {
+      isCapturingRef.current = false;
+      setIsFlashing(false);
+    }).then(fn => { unlisten = fn; }).catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const handleConfirm = useCallback(async (copyToClipboardOnly = false) => {
     if (isCapturingRef.current) return;
     const currentBox = boxRef.current;
     if (currentBox.width < 10 || currentBox.height < 10) return;
     isCapturingRef.current = true;
+    setIsFlashing(true);
 
     const screenRect = {
       x: Math.round(originX + currentBox.x),
@@ -56,9 +73,14 @@ export const CropOverlay: React.FC = () => {
       height: Math.round(currentBox.height)
     };
 
-    if (window.electronAPI?.confirmCrop) {
-      await window.electronAPI.confirmCrop(screenRect, copyToClipboardOnly);
-    }
+    // Quick visual shutter flash before capturing
+    setTimeout(async () => {
+      if (window.electronAPI?.confirmCrop) {
+        await window.electronAPI.confirmCrop(screenRect, copyToClipboardOnly);
+      }
+      setIsFlashing(false);
+      isCapturingRef.current = false;
+    }, 60);
   }, [originX, originY]);
 
   const handleCancel = useCallback(async () => {
@@ -67,6 +89,7 @@ export const CropOverlay: React.FC = () => {
     if (window.electronAPI?.cancelCrop) {
       await window.electronAPI.cancelCrop();
     }
+    isCapturingRef.current = false;
   }, []);
 
   // Global keyboard shortcuts (Enter, ⌘C / Ctrl+C, Esc, Arrow nudge)
@@ -100,75 +123,88 @@ export const CropOverlay: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleConfirm, handleCancel]);
 
-  // Mouse move and mouse up listeners for move / resize / draw
+  // Mouse move and mouse up listeners with requestAnimationFrame for 60fps/120fps fluid dragging
   useEffect(() => {
     if (!dragMode) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const orig = dragStartRef.current;
-      const dx = e.clientX - orig.mouseX;
-      const dy = e.clientY - orig.mouseY;
-      const winW = window.innerWidth;
-      const winH = window.innerHeight;
+      if (rafIdRef.current !== null) return;
 
-      if (dragMode === 'move') {
-        let nx = orig.boxX + dx;
-        let ny = orig.boxY + dy;
-        nx = Math.max(0, Math.min(winW - orig.boxW, nx));
-        ny = Math.max(0, Math.min(winH - orig.boxH, ny));
-        setBox({
-          x: Math.round(nx),
-          y: Math.round(ny),
-          width: orig.boxW,
-          height: orig.boxH
-        });
-      } else if (dragMode === 'draw') {
-        const curX = Math.max(0, Math.min(winW, e.clientX));
-        const curY = Math.max(0, Math.min(winH, e.clientY));
-        const nx = Math.min(orig.mouseX, curX);
-        const ny = Math.min(orig.mouseY, curY);
-        const nw = Math.abs(curX - orig.mouseX);
-        const nh = Math.abs(curY - orig.mouseY);
-        setBox({
-          x: Math.round(nx),
-          y: Math.round(ny),
-          width: Math.round(nw),
-          height: Math.round(nh)
-        });
-      } else {
-        // Resize handle
-        const MIN_SIZE = 30;
-        let nx = orig.boxX;
-        let ny = orig.boxY;
-        let nw = orig.boxW;
-        let nh = orig.boxH;
+      const clientX = e.clientX;
+      const clientY = e.clientY;
 
-        if (dragMode.includes('w')) {
-          const maxLeft = orig.boxX + orig.boxW - MIN_SIZE;
-          nx = Math.min(maxLeft, Math.max(0, orig.boxX + dx));
-          nw = orig.boxW - (nx - orig.boxX);
-        } else if (dragMode.includes('e')) {
-          nw = Math.max(MIN_SIZE, Math.min(winW - orig.boxX, orig.boxW + dx));
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        const orig = dragStartRef.current;
+        const dx = clientX - orig.mouseX;
+        const dy = clientY - orig.mouseY;
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+
+        if (dragMode === 'move') {
+          let nx = orig.boxX + dx;
+          let ny = orig.boxY + dy;
+          nx = Math.max(0, Math.min(winW - orig.boxW, nx));
+          ny = Math.max(0, Math.min(winH - orig.boxH, ny));
+          setBox({
+            x: Math.round(nx),
+            y: Math.round(ny),
+            width: orig.boxW,
+            height: orig.boxH
+          });
+        } else if (dragMode === 'draw') {
+          const curX = Math.max(0, Math.min(winW, clientX));
+          const curY = Math.max(0, Math.min(winH, clientY));
+          const nx = Math.min(orig.mouseX, curX);
+          const ny = Math.min(orig.mouseY, curY);
+          const nw = Math.abs(curX - orig.mouseX);
+          const nh = Math.abs(curY - orig.mouseY);
+          setBox({
+            x: Math.round(nx),
+            y: Math.round(ny),
+            width: Math.round(nw),
+            height: Math.round(nh)
+          });
+        } else {
+          // Resize handle
+          const MIN_SIZE = 30;
+          let nx = orig.boxX;
+          let ny = orig.boxY;
+          let nw = orig.boxW;
+          let nh = orig.boxH;
+
+          if (dragMode.includes('w')) {
+            const maxLeft = orig.boxX + orig.boxW - MIN_SIZE;
+            nx = Math.min(maxLeft, Math.max(0, orig.boxX + dx));
+            nw = orig.boxW - (nx - orig.boxX);
+          } else if (dragMode.includes('e')) {
+            nw = Math.max(MIN_SIZE, Math.min(winW - orig.boxX, orig.boxW + dx));
+          }
+
+          if (dragMode.includes('n')) {
+            const maxTop = orig.boxY + orig.boxH - MIN_SIZE;
+            ny = Math.min(maxTop, Math.max(0, orig.boxY + dy));
+            nh = orig.boxH - (ny - orig.boxY);
+          } else if (dragMode.includes('s')) {
+            nh = Math.max(MIN_SIZE, Math.min(winH - orig.boxY, orig.boxH + dy));
+          }
+
+          setBox({
+            x: Math.round(nx),
+            y: Math.round(ny),
+            width: Math.round(nw),
+            height: Math.round(nh)
+          });
         }
-
-        if (dragMode.includes('n')) {
-          const maxTop = orig.boxY + orig.boxH - MIN_SIZE;
-          ny = Math.min(maxTop, Math.max(0, orig.boxY + dy));
-          nh = orig.boxH - (ny - orig.boxY);
-        } else if (dragMode.includes('s')) {
-          nh = Math.max(MIN_SIZE, Math.min(winH - orig.boxY, orig.boxH + dy));
-        }
-
-        setBox({
-          x: Math.round(nx),
-          y: Math.round(ny),
-          width: Math.round(nw),
-          height: Math.round(nh)
-        });
-      }
+      });
     };
 
     const handleMouseUp = () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
       // If draw was too small, restore a fallback centered box
       if (dragMode === 'draw' && (boxRef.current.width < 24 || boxRef.current.height < 24)) {
         const fallbackW = Math.min(600, Math.round(window.innerWidth * 0.5));
@@ -186,6 +222,10 @@ export const CropOverlay: React.FC = () => {
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
@@ -265,13 +305,45 @@ export const CropOverlay: React.FC = () => {
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.005)' }}
       onMouseDown={handleBackdropMouseDown}
     >
+      {/* 📸 Instant Camera Shutter Flash Animation */}
+      {isFlashing && (
+        <div className="fixed inset-0 z-[100] bg-white/60 pointer-events-none transition-opacity duration-150 animate-out fade-out" />
+      )}
+
+      {/* 4 Dimmed Boundary Panels (0ms hardware-composited vs expensive 9999px box-shadow) */}
+      <div
+        className="absolute top-0 left-0 right-0 pointer-events-none"
+        style={{ height: `${Math.max(0, box.y)}px`, backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+      />
+      <div
+        className="absolute left-0 right-0 bottom-0 pointer-events-none"
+        style={{ top: `${Math.max(0, box.y + box.height)}px`, backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+      />
+      <div
+        className="absolute left-0 pointer-events-none"
+        style={{
+          top: `${Math.max(0, box.y)}px`,
+          height: `${Math.max(0, box.height)}px`,
+          width: `${Math.max(0, box.x)}px`,
+          backgroundColor: 'rgba(0, 0, 0, 0.45)'
+        }}
+      />
+      <div
+        className="absolute right-0 pointer-events-none"
+        style={{
+          top: `${Math.max(0, box.y)}px`,
+          height: `${Math.max(0, box.height)}px`,
+          left: `${Math.max(0, box.x + box.width)}px`,
+          backgroundColor: 'rgba(0, 0, 0, 0.45)'
+        }}
+      />
+
       {/* Framing selection box */}
       <div
         style={{
           transform: `translate3d(${box.x}px, ${box.y}px, 0)`,
           width: `${box.width}px`,
           height: `${box.height}px`,
-          boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.44)',
         }}
         className="absolute top-0 left-0 border-[1.5px] border-white/95 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)] cursor-move"
         onMouseDown={handleBoxMouseDown}
@@ -290,7 +362,7 @@ export const CropOverlay: React.FC = () => {
             showBadgeInside ? 'top-2.5' : '-bottom-7'
           }`}
         >
-          <div className="px-2.5 py-0.5 bg-black/80 backdrop-blur-md text-white font-mono text-[11px] font-semibold rounded-full shadow-lg border border-white/20 whitespace-nowrap tracking-wide">
+          <div className="px-2.5 py-0.5 bg-black/85 text-white font-mono text-[11px] font-semibold rounded-full shadow-lg border border-white/20 whitespace-nowrap tracking-wide">
             {Math.round(box.width)} × {Math.round(box.height)}
           </div>
         </div>
@@ -316,7 +388,7 @@ export const CropOverlay: React.FC = () => {
           zIndex: 50
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-neutral-900/90 backdrop-blur-xl border border-white/20 shadow-2xl text-white select-none animate-in fade-in zoom-in-95 duration-150"
+        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 border border-white/20 shadow-2xl text-white select-none animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Pixel badge inside bar */}
         <div className="px-2 py-1 mr-1 text-[11px] font-mono font-medium text-neutral-300 bg-white/10 rounded-md border border-white/10 shrink-0">

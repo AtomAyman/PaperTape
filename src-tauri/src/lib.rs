@@ -343,6 +343,220 @@ fn send_system_notification(app: AppHandle, data: NotificationPayload) -> Result
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+mod win32 {
+    #[repr(C)]
+    pub struct BitmapInfoHeader {
+        pub bi_size: u32,
+        pub bi_width: i32,
+        pub bi_height: i32,
+        pub bi_planes: u16,
+        pub bi_bit_count: u16,
+        pub bi_compression: u32,
+        pub bi_size_image: u32,
+        pub bi_x_pels_per_meter: i32,
+        pub bi_y_pels_per_meter: i32,
+        pub bi_clr_used: u32,
+        pub bi_clr_important: u32,
+    }
+
+    #[repr(C)]
+    pub struct RgbQuad {
+        pub rgb_blue: u8,
+        pub rgb_green: u8,
+        pub rgb_red: u8,
+        pub rgb_reserved: u8,
+    }
+
+    #[repr(C)]
+    pub struct BitmapInfo {
+        pub bmi_header: BitmapInfoHeader,
+        pub bmi_colors: [RgbQuad; 1],
+    }
+
+    #[repr(C)]
+    pub struct KbdllHookStruct {
+        pub vk_code: u32,
+        pub scan_code: u32,
+        pub flags: u32,
+        pub time: u32,
+        pub dw_extra_info: usize,
+    }
+
+    pub const SRCCOPY: u32 = 0x00CC0020;
+    pub const CAPTUREBLT: u32 = 0x40000000;
+    pub const BI_RGB: u32 = 0;
+    pub const DIB_RGB_COLORS: u32 = 0;
+    pub const WH_KEYBOARD_LL: i32 = 13;
+    pub const WM_KEYDOWN: u32 = 0x0100;
+    pub const WM_SYSKEYDOWN: u32 = 0x0104;
+    pub const VK_SNAPSHOT: u32 = 0x2C;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        pub fn GetDC(hwnd: isize) -> isize;
+        pub fn ReleaseDC(hwnd: isize, hdc: isize) -> i32;
+        pub fn SetWindowsHookExW(
+            idhook: i32,
+            lpfn: Option<unsafe extern "system" fn(i32, usize, isize) -> isize>,
+            hmod: isize,
+            dwthreadid: u32,
+        ) -> isize;
+        pub fn UnhookWindowsHookEx(hhk: isize) -> i32;
+        pub fn CallNextHookEx(hhk: isize, ncode: i32, wparam: usize, lparam: isize) -> isize;
+        pub fn GetMessageW(lpmsg: *mut u8, hwnd: isize, wmsgfiltermin: u32, wmsgfiltermax: u32) -> i32;
+        pub fn TranslateMessage(lpmsg: *const u8) -> i32;
+        pub fn DispatchMessageW(lpmsg: *const u8) -> isize;
+    }
+
+    #[link(name = "gdi32")]
+    unsafe extern "system" {
+        pub fn CreateCompatibleDC(hdc: isize) -> isize;
+        pub fn CreateCompatibleBitmap(hdc: isize, cx: i32, cy: i32) -> isize;
+        pub fn SelectObject(hdc: isize, h: isize) -> isize;
+        pub fn BitBlt(
+            hdc: isize,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            hdcsrc: isize,
+            x1: i32,
+            y1: i32,
+            rop: u32,
+        ) -> i32;
+        pub fn GetDIBits(
+            hdc: isize,
+            hbm: isize,
+            start: u32,
+            c_lines: u32,
+            lpv_bits: *mut u8,
+            lpbmi: *mut BitmapInfo,
+            usage: u32,
+        ) -> i32;
+        pub fn DeleteObject(ho: isize) -> i32;
+        pub fn DeleteDC(hdc: isize) -> i32;
+    }
+}
+
+#[cfg(target_os = "windows")]
+static GLOBAL_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: usize, lparam: isize) -> isize {
+    if code >= 0 && (wparam as u32 == win32::WM_KEYDOWN || wparam as u32 == win32::WM_SYSKEYDOWN) {
+        let kbd = *(lparam as *const win32::KbdllHookStruct);
+        if kbd.vk_code == win32::VK_SNAPSHOT {
+            if let Some(app) = GLOBAL_APP_HANDLE.get() {
+                let app_handle = app.clone();
+                std::thread::spawn(move || {
+                    let _ = capture_screenshot(app_handle);
+                });
+            }
+            // Return 1 to swallow key so Windows Snipping Tool never activates!
+            return 1;
+        }
+    }
+    win32::CallNextHookEx(0, code, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn init_printscreen_hook(app: tauri::AppHandle) {
+    let _ = GLOBAL_APP_HANDLE.set(app);
+    std::thread::spawn(|| {
+        unsafe {
+            let hook = win32::SetWindowsHookExW(
+                win32::WH_KEYBOARD_LL,
+                Some(low_level_keyboard_proc),
+                0,
+                0,
+            );
+            if hook != 0 {
+                let mut msg = [0u8; 48];
+                while win32::GetMessageW(msg.as_mut_ptr(), 0, 0, 0) > 0 {
+                    win32::TranslateMessage(msg.as_ptr());
+                    win32::DispatchMessageW(msg.as_ptr());
+                }
+                win32::UnhookWindowsHookEx(hook);
+            }
+        }
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn capture_screen_win32(x: i32, y: i32, w: u32, h: u32, file_path: &std::path::Path) -> Result<(), String> {
+    unsafe {
+        let hdc_screen = win32::GetDC(0);
+        if hdc_screen == 0 {
+            return Err("Failed to get desktop DC".to_string());
+        }
+
+        let hdc_mem = win32::CreateCompatibleDC(hdc_screen);
+        if hdc_mem == 0 {
+            win32::ReleaseDC(0, hdc_screen);
+            return Err("Failed to create memory DC".to_string());
+        }
+
+        let hbitmap = win32::CreateCompatibleBitmap(hdc_screen, w as i32, h as i32);
+        if hbitmap == 0 {
+            win32::DeleteDC(hdc_mem);
+            win32::ReleaseDC(0, hdc_screen);
+            return Err("Failed to create compatible bitmap".to_string());
+        }
+
+        let old_bitmap = win32::SelectObject(hdc_mem, hbitmap);
+        let rop = win32::SRCCOPY | win32::CAPTUREBLT;
+        win32::BitBlt(hdc_mem, 0, 0, w as i32, h as i32, hdc_screen, x, y, rop);
+        win32::SelectObject(hdc_mem, old_bitmap);
+
+        let mut bmi: win32::BitmapInfo = std::mem::zeroed();
+        bmi.bmi_header.bi_size = std::mem::size_of::<win32::BitmapInfoHeader>() as u32;
+        bmi.bmi_header.bi_width = w as i32;
+        bmi.bmi_header.bi_height = -(h as i32);
+        bmi.bmi_header.bi_planes = 1;
+        bmi.bmi_header.bi_bit_count = 32;
+        bmi.bmi_header.bi_compression = win32::BI_RGB;
+
+        let num_pixels = (w * h) as usize;
+        let mut bgra_buf: Vec<u8> = vec![0u8; num_pixels * 4];
+
+        let lines = win32::GetDIBits(
+            hdc_mem,
+            hbitmap,
+            0,
+            h,
+            bgra_buf.as_mut_ptr(),
+            &mut bmi,
+            win32::DIB_RGB_COLORS,
+        );
+
+        win32::DeleteObject(hbitmap);
+        win32::DeleteDC(hdc_mem);
+        win32::ReleaseDC(0, hdc_screen);
+
+        if lines == 0 {
+            return Err("GetDIBits failed to copy pixels".to_string());
+        }
+
+        // Convert BGRA to RGBA in place
+        for pixel in bgra_buf.chunks_exact_mut(4) {
+            let b = pixel[0];
+            let r = pixel[2];
+            pixel[0] = r;
+            pixel[2] = b;
+            pixel[3] = 255;
+        }
+
+        if let Some(img) = image::RgbaImage::from_raw(w, h, bgra_buf) {
+            img.save(file_path).map_err(|e| format!("PNG save failed: {}", e))?;
+        } else {
+            return Err("Failed to construct image from buffer".to_string());
+        }
+
+        Ok(())
+    }
+}
+
 #[tauri::command]
 fn capture_screenshot(app: AppHandle) -> Result<(), String> {
     // Hide main window so it is not visible during framing
@@ -365,6 +579,7 @@ fn capture_screenshot(app: AppHandle) -> Result<(), String> {
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
         let _ = crop_win.set_position(pos);
         let _ = crop_win.set_size(size);
+        let _ = crop_win.emit("reset-crop", ());
         let _ = crop_win.show();
         let _ = crop_win.set_focus();
     } else {
@@ -394,7 +609,7 @@ fn capture_screenshot(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn cancel_crop(app: AppHandle, state: tauri::State<Arc<AppState>>) -> Result<(), String> {
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
-        let _ = crop_win.destroy();
+        let _ = crop_win.hide();
     }
     if let Some(main_win) = app.get_webview_window("main") {
         let last_rect = state.last_tray_rect.lock().ok().and_then(|r| r.clone());
@@ -405,14 +620,13 @@ fn cancel_crop(app: AppHandle, state: tauri::State<Arc<AppState>>) -> Result<(),
 
 #[tauri::command]
 fn confirm_crop(app: AppHandle, state: tauri::State<Arc<AppState>>, payload: ConfirmCropPayload) -> Result<(), String> {
-    // Destroy crop overlay window before capture so it does not appear in the image
+    // Hide crop overlay window immediately before capture so it does not appear in the image
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
-        let _ = crop_win.destroy();
+        let _ = crop_win.hide();
     }
 
     // Allow window server a brief moment to clear the overlay
-    #[cfg(target_os = "macos")]
-    std::thread::sleep(Duration::from_millis(80));
+    std::thread::sleep(Duration::from_millis(40));
 
     let dir = get_papertape_dir();
     let screenshots_dir = dir.join("screenshots");
@@ -455,41 +669,20 @@ fn confirm_crop(app: AppHandle, state: tauri::State<Arc<AppState>>, payload: Con
             (
                 (r.x * scale).round() as i32,
                 (r.y * scale).round() as i32,
-                (r.width * scale).round().max(10.0) as i32,
-                (r.height * scale).round().max(10.0) as i32,
+                (r.width * scale).round().max(10.0) as u32,
+                (r.height * scale).round().max(10.0) as u32,
             )
         } else {
             let (mw, mh) = app
                 .primary_monitor()
                 .ok()
                 .flatten()
-                .map(|m| (m.size().width as i32, m.size().height as i32))
+                .map(|m| (m.size().width, m.size().height))
                 .unwrap_or((1920, 1080));
             (0, 0, mw, mh)
         };
 
-        let file_path_str = file_path.to_string_lossy().replace('\'', "''");
-        let ps_cmd = format!(
-            "$ErrorActionPreference = 'Stop'; \
-             Add-Type -AssemblyName System.Drawing; \
-             $bmp = New-Object System.Drawing.Bitmap({}, {}); \
-             $g = [System.Drawing.Graphics]::FromImage($bmp); \
-             $g.CopyFromScreen({}, {}, 0, 0, $bmp.Size); \
-             $bmp.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png); \
-             $g.Dispose(); $bmp.Dispose();",
-            w, h, x, y, file_path_str
-        );
-
-        let output = std::process::Command::new("powershell")
-            .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| format!("PowerShell screen capture failed: {}", e))?;
-
-        if !output.status.success() {
-            let err_text = String::from_utf8_lossy(&output.stderr);
-            log::error!("PowerShell screen capture failed: {}", err_text);
-            return Err(format!("Windows screen capture failed: {}", err_text));
-        }
+        capture_screen_win32(x, y, w, h, &file_path)?;
     }
 
     if !file_path.exists() {
@@ -662,6 +855,11 @@ pub fn run() {
                     let _ = capture_screenshot(app_for_crop.clone());
                 }
             });
+
+            #[cfg(target_os = "windows")]
+            {
+                init_printscreen_hook(app_handle.clone());
+            }
 
             // Setup Tray Menu
             let toggle_item = MenuItem::with_id(app, "toggle", "Toggle PaperTape", true, None::<&str>)?;

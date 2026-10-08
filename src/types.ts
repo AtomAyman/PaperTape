@@ -85,7 +85,7 @@ declare global {
       saveMarkdownNote: (noteData: { title: string; content: string; id: string }) => Promise<{ success: boolean; path?: string; error?: string }>;
       openDocumentsFolder: () => Promise<boolean>;
       captureScreenshot: () => Promise<{ success: boolean }>;
-      onScreenshotCaptured: (callback: (data: { dataUrl: string; filePath: string; filename: string; timestamp: number }) => void) => () => void;
+      onScreenshotCaptured: (callback: (data: { dataUrl: string; filePath: string; filename?: string; timestamp?: number | string; timeStr?: string; createdAt?: number }) => void) => () => void;
       copyImageToClipboard: (dataUrl: string) => Promise<boolean>;
       saveVaultBackup: (notes: Note[]) => Promise<{ success: boolean; error?: string }>;
       loadVaultBackup: () => Promise<Note[] | null>;

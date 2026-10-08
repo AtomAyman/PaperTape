@@ -1,6 +1,6 @@
 {
   "name": "papertape",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "PaperTape: Ultra-Lightweight Scratchpad & Dynamic Floating Notch Pad",
   "type": "module",
   "scripts": {

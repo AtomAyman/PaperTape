@@ -716,11 +716,15 @@ fn confirm_crop(app: AppHandle, state: tauri::State<Arc<AppState>>, payload: Con
     }
 
     // Emit event to main window and re-show it right at the tray position
-    let timestamp = now.format("%I:%M %p").to_string();
+    let timestamp_ms = now.timestamp_millis();
+    let timestamp_str = now.format("%I:%M %p").to_string();
     let shot_event = serde_json::json!({
         "filePath": file_path.to_string_lossy().to_string(),
         "dataUrl": data_url,
-        "timestamp": timestamp
+        "filename": filename,
+        "timestamp": timestamp_ms,
+        "timeStr": timestamp_str,
+        "createdAt": timestamp_ms
     });
 
     if let Some(main_win) = app.get_webview_window("main") {

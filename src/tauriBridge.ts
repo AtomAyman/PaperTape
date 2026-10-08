@@ -40,9 +40,9 @@ export function setupTauriBridge() {
     captureScreenshot: async (): Promise<void> => {
       await invoke('capture_screenshot');
     },
-    onScreenshotCaptured: (callback: (data: { filePath: string; dataUrl: string; timestamp: string }) => void) => {
+    onScreenshotCaptured: (callback: (data: any) => void) => {
       let unlisten: (() => void) | null = null;
-      listen<{ filePath: string; dataUrl: string; timestamp: string }>('screenshot-captured', (event) => {
+      listen<any>('screenshot-captured', (event) => {
         callback(event.payload);
       }).then((fn) => {
         unlisten = fn;

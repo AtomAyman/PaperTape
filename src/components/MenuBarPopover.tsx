@@ -24,7 +24,9 @@ import {
   ListTodo,
   Clipboard,
   Camera,
-  Image as ImageIcon
+  Image as ImageIcon,
+  FileText,
+  Download
 } from 'lucide-react';
 import { Note, AppSettings, SlotConfig, Attachment } from '../types';
 import { ThemeColors, DEFAULT_SLOTS, EXTRA_SLOTS } from '../constants/themes';
@@ -91,6 +93,8 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
   const [ringingTimers, setRingingTimers] = useState<number[]>([]);
   const [copied, setCopied] = useState(false);
   const [copiedImageId, setCopiedImageId] = useState<string | null>(null);
+  const [copiedWordId, setCopiedWordId] = useState<string | null>(null);
+  const [copiedAllWord, setCopiedAllWord] = useState(false);
   const [availableSlots, setAvailableSlots] = useState<SlotConfig[]>(DEFAULT_SLOTS);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [dueReminders, setDueReminders] = useState<ReminderData[]>([]);
@@ -143,15 +147,174 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
     }
   }, [note.id, noteIndex, note.attachments?.length]);
 
-  const formatCaptureTime = (ts?: number) => {
+  const formatCaptureTime = (ts?: any) => {
     if (!ts) return '';
-    const date = new Date(ts);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (isToday) return `Today, ${timeStr}`;
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
+    let date: Date | null = null;
+    if (typeof ts === 'number') {
+      date = new Date(ts);
+    } else if (typeof ts === 'string') {
+      const num = Number(ts);
+      if (!isNaN(num) && num > 1000000) {
+        date = new Date(num);
+      } else {
+        const parsed = new Date(ts);
+        if (!isNaN(parsed.getTime())) {
+          date = parsed;
+        }
+      }
+    }
+
+    if (date && !isNaN(date.getTime())) {
+      const now = new Date();
+      const isToday = date.toDateString() === now.toDateString();
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (isToday) return `Today, ${timeStr}`;
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${monthNames[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
+    }
+
+    // Fallback for string-based timestamps like "08:04 PM"
+    if (typeof ts === 'string' && ts.trim().length > 0 && !ts.includes('NaN') && !ts.includes('Invalid')) {
+      return `Today, ${ts.trim()}`;
+    }
+
+    return `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const getCardTitle = (att: Attachment) => {
+    if (att.name && !att.name.includes('Invalid Date')) {
+      return att.name;
+    }
+    const cleanTime = formatCaptureTime(att.createdAt).replace('Today, ', '');
+    return `Screenshot ${cleanTime || 'Capture'}`;
+  };
+
+  const copyRichContentToClipboard = async (htmlContent: string, plainContent: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const blobHtml = new Blob([htmlContent], { type: 'text/html' });
+        const blobText = new Blob([plainContent], { type: 'text/plain' });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': blobHtml,
+            'text/plain': blobText,
+          })
+        ]);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Navigator clipboard write failed, trying fallback:', e);
+    }
+
+    // Fallback using invisible contentEditable DOM element
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = htmlContent;
+      container.style.position = 'fixed';
+      container.style.left = '-9999px';
+      container.style.top = '0';
+      container.style.opacity = '0';
+      document.body.appendChild(container);
+
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(container);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      const success = document.execCommand('copy');
+      selection?.removeAllRanges();
+      document.body.removeChild(container);
+      return success;
+    } catch (e) {
+      console.error('Fallback HTML copy failed:', e);
+      return false;
+    }
+  };
+
+  const generateCardHtml = (att: Attachment): { html: string; text: string } => {
+    const title = getCardTitle(att);
+    const time = formatCaptureTime(att.createdAt);
+    const caption = att.caption?.trim() || '';
+
+    const html = `
+<div style="font-family: Calibri, 'Segoe UI', -apple-system, Arial, sans-serif; margin-bottom: 24px; color: #1f2937;">
+  <div style="font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 6px;">
+    📸 ${title} <span style="font-size: 12px; font-weight: normal; color: #6b7280;">(${time})</span>
+  </div>
+  <div style="margin: 8px 0 12px 0;">
+    <img src="${att.dataUrl}" alt="${title}" style="max-width: 100%; height: auto; border: 1px solid #d1d5db; border-radius: 6px; display: block;" />
+  </div>
+  ${caption ? `<div style="font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-wrap; background-color: #f9fafb; padding: 10px 14px; border-left: 3px solid #3b82f6; border-radius: 4px; margin-top: 6px;">${caption.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
+</div>`;
+
+    const text = `📸 ${title} (${time})\n\n[Screenshot attached]\n\n${caption ? `Notes:\n${caption}\n` : ''}\n----------------------------------------\n`;
+
+    return { html, text };
+  };
+
+  const generateFullStreamHtml = (currentNote: Note): { html: string; text: string } => {
+    const noteTitle = currentNote.id === 'screenshots_stream' 
+      ? '📸 Screenshot Stream & Documentation' 
+      : 'Notes & Screenshots';
+    const noteSummary = currentNote.content?.replace(/^#\s*📸\s*Screenshot Stream.*?\n+/i, '').trim() || '';
+    const attachments = currentNote.attachments || [];
+
+    const cardsHtml = attachments.map(att => generateCardHtml(att).html).join('\n');
+    const cardsText = attachments.map(att => generateCardHtml(att).text).join('\n');
+
+    const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${noteTitle}</title>
+</head>
+<body style="font-family: Calibri, 'Segoe UI', -apple-system, Arial, sans-serif; max-width: 800px; margin: 20px auto; color: #1f2937; line-height: 1.5;">
+  <h1 style="font-size: 22px; color: #111827; margin-bottom: 8px; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">
+    ${noteTitle}
+  </h1>
+  ${noteSummary ? `<div style="font-size: 14px; color: #4b5563; margin-bottom: 20px; white-space: pre-wrap; background-color: #f3f4f6; padding: 12px; border-radius: 6px;">${noteSummary.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
+  <div style="margin-top: 16px;">
+    ${cardsHtml}
+  </div>
+</body>
+</html>`;
+
+    const fullText = `${noteTitle}\n${noteSummary ? `\n${noteSummary}\n` : ''}\n========================================\n\n${cardsText}`;
+
+    return { html: fullHtml, text: fullText };
+  };
+
+  const handleCopyCardForWord = async (att: Attachment) => {
+    const { html, text } = generateCardHtml(att);
+    const success = await copyRichContentToClipboard(html, text);
+    if (success) {
+      setCopiedWordId(att.id);
+      setTimeout(() => setCopiedWordId(null), 2000);
+    }
+  };
+
+  const handleCopyAllForWord = async (currentNote: Note) => {
+    const { html, text } = generateFullStreamHtml(currentNote);
+    const success = await copyRichContentToClipboard(html, text);
+    if (success) {
+      setCopiedAllWord(true);
+      setTimeout(() => setCopiedAllWord(false), 2000);
+    }
+  };
+
+  const handleExportAsDoc = (currentNote: Note) => {
+    const { html } = generateFullStreamHtml(currentNote);
+    const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `PaperTape_Screenshots_${dateStr}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleCopyImageToClipboard = async (dataUrl: string, attId: string) => {
@@ -739,7 +902,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
               <div 
                 className="absolute bottom-0 inset-x-0 bg-black/75 px-1.5 py-0.5 text-[9px] font-mono text-white/90 truncate pointer-events-none"
               >
-                {att.name}
+                {getCardTitle(att)}
               </div>
             </div>
           ))}
@@ -766,9 +929,46 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
                 <span className="text-[11px] font-mono font-bold tracking-wider opacity-75 uppercase" style={{ color: theme.accent }}>
                   📸 SCREENSHOT STREAM & DOCUMENTATION
                 </span>
-                <span className="text-[10px] font-mono opacity-60" style={{ color: theme.textMuted }}>
-                  {note.attachments?.length || 0} CAPTURE{(note.attachments?.length || 0) === 1 ? '' : 'S'}
-                </span>
+                <div className="flex items-center space-x-1.5">
+                  {note.attachments && note.attachments.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => handleCopyAllForWord(note)}
+                        title="Copy all screenshots and notes formatted for Word, Docs, or email"
+                        className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold transition-all hover:scale-105 active:scale-95 shadow-xs"
+                        style={{
+                          backgroundColor: copiedAllWord ? '#10B981' : (theme.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'),
+                          color: copiedAllWord ? '#ffffff' : theme.accent
+                        }}
+                      >
+                        {copiedAllWord ? (
+                          <>
+                            <Check className="w-3 h-3 text-white" />
+                            <span>Copied All to Word!</span>
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="w-3 h-3" />
+                            <span>Copy All for Word</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handleExportAsDoc(note)}
+                        title="Export & download as a Word document (.doc) with all images & notes"
+                        className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+                        style={{ color: theme.textMuted }}
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Export .doc</span>
+                      </button>
+                    </>
+                  )}
+                  <span className="text-[10px] font-mono opacity-60 ml-1" style={{ color: theme.textMuted }}>
+                    {note.attachments?.length || 0} CAPTURE{(note.attachments?.length || 0) === 1 ? '' : 'S'}
+                  </span>
+                </div>
               </div>
               <textarea
                 value={note.content}
@@ -803,15 +1003,35 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
                           {formatCaptureTime(att.createdAt)}
                         </span>
                         <span className="text-[11px] font-mono truncate opacity-60" style={{ color: theme.text }}>
-                          {att.name}
+                          {getCardTitle(att)}
                         </span>
                       </div>
 
                       <div className="flex items-center space-x-1 shrink-0">
+                        {/* Copy for Word / Docs */}
+                        <button
+                          onClick={() => handleCopyCardForWord(att)}
+                          title="Copy image and note formatted for Word, Docs, or OneNote"
+                          className="flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-mono transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+                          style={{ color: copiedWordId === att.id ? '#10B981' : theme.accent }}
+                        >
+                          {copiedWordId === att.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400 font-semibold">Copied for Word!</span>
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Copy for Word</span>
+                            </>
+                          )}
+                        </button>
+
                         {/* Copy Image to System Clipboard */}
                         <button
                           onClick={() => handleCopyImageToClipboard(att.dataUrl, att.id)}
-                          title="Copy Image to macOS Clipboard"
+                          title="Copy Image to Clipboard"
                           className="flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-mono transition-colors hover:bg-black/10 dark:hover:bg-white/10"
                           style={{ color: copiedImageId === att.id ? '#10B981' : theme.textMuted }}
                         >

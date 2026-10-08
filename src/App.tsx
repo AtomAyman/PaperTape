@@ -143,15 +143,29 @@ export const App: React.FC = () => {
     if (!window.electronAPI?.onScreenshotCaptured) return;
 
     const cleanup = window.electronAPI.onScreenshotCaptured((shot) => {
-      const timeStr = new Date(shot.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      let nowMs = Date.now();
+      if (typeof shot.createdAt === 'number') {
+        nowMs = shot.createdAt;
+      } else if (typeof shot.timestamp === 'number') {
+        nowMs = shot.timestamp;
+      } else if (typeof shot.timestamp === 'string') {
+        const num = Number(shot.timestamp);
+        if (!isNaN(num) && num > 1000000) {
+          nowMs = num;
+        }
+      }
+
+      const dateObj = new Date(nowMs);
+      const safeDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+      const timeStr = shot.timeStr || safeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       const newAttachment: Attachment = {
-        id: `shot_${shot.timestamp || Date.now()}`,
+        id: `shot_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
         name: shot.filename || `Screenshot ${timeStr}`,
         type: 'image/png',
         dataUrl: shot.dataUrl,
         filePath: shot.filePath,
-        createdAt: shot.timestamp || Date.now(),
+        createdAt: nowMs,
         caption: ''
       };
 

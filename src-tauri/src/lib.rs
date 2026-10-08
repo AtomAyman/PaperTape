@@ -346,6 +346,7 @@ fn send_system_notification(app: AppHandle, data: NotificationPayload) -> Result
 #[cfg(target_os = "windows")]
 mod win32 {
     #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct BitmapInfoHeader {
         pub bi_size: u32,
         pub bi_width: i32,
@@ -361,6 +362,7 @@ mod win32 {
     }
 
     #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct RgbQuad {
         pub rgb_blue: u8,
         pub rgb_green: u8,
@@ -369,12 +371,14 @@ mod win32 {
     }
 
     #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct BitmapInfo {
         pub bmi_header: BitmapInfoHeader,
         pub bmi_colors: [RgbQuad; 1],
     }
 
     #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct KbdllHookStruct {
         pub vk_code: u32,
         pub scan_code: u32,
@@ -444,20 +448,22 @@ static GLOBAL_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::Onc
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: usize, lparam: isize) -> isize {
-    if code >= 0 && (wparam as u32 == win32::WM_KEYDOWN || wparam as u32 == win32::WM_SYSKEYDOWN) {
-        let kbd = *(lparam as *const win32::KbdllHookStruct);
-        if kbd.vk_code == win32::VK_SNAPSHOT {
-            if let Some(app) = GLOBAL_APP_HANDLE.get() {
-                let app_handle = app.clone();
-                std::thread::spawn(move || {
-                    let _ = capture_screenshot(app_handle);
-                });
+    unsafe {
+        if code >= 0 && (wparam as u32 == win32::WM_KEYDOWN || wparam as u32 == win32::WM_SYSKEYDOWN) {
+            let kbd = *(lparam as *const win32::KbdllHookStruct);
+            if kbd.vk_code == win32::VK_SNAPSHOT {
+                if let Some(app) = GLOBAL_APP_HANDLE.get() {
+                    let app_handle = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = capture_screenshot(app_handle);
+                    });
+                }
+                // Return 1 to swallow key so Windows Snipping Tool never activates!
+                return 1;
             }
-            // Return 1 to swallow key so Windows Snipping Tool never activates!
-            return 1;
         }
+        win32::CallNextHookEx(0, code, wparam, lparam)
     }
-    win32::CallNextHookEx(0, code, wparam, lparam)
 }
 
 #[cfg(target_os = "windows")]

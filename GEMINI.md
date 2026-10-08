@@ -22,5 +22,10 @@ When starting or fundamentally refactoring a desktop application, menu bar utili
 ## 4. WebView2 Transparent Hit-Testing
 - In Windows WebView2, 100% transparent backgrounds (`background-color: transparent`) drop mouse clicks through to background apps. Always use `rgba(0,0,0,0.005)` for overlay backdrops.
 
-## 5. Git Discipline
+## 5. Native Screen Capture & Hardware Keys
+- Never use PowerShell for screen capture on Windows (triggers 15–30s AMSI/antivirus delays). Use native Win32 GDI `BitBlt` with pure Rust PNG saving (<10ms).
+- On Windows, install a low-level keyboard hook (`WH_KEYBOARD_LL`) to swallow `VK_SNAPSHOT` (0x2C) so the Windows Snipping Tool does not preempt the app's screenshot shortcut.
+- Pre-cache the crop overlay (`hide()` instead of `destroy()`) and avoid 9999px CSS spread box-shadows to ensure 60fps/120fps fluid framing.
+
+## 6. Git Discipline
 - The GitHub remote repository is the single source of truth. All code, version bumps, and configuration changes must be committed and pushed directly to GitHub.

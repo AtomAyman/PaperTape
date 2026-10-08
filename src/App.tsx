@@ -63,11 +63,30 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Sync initial shortcuts with Electron main process
+  // Sync initial shortcuts, auto-clipboard, and pin state with backend
   useEffect(() => {
     if (window.electronAPI?.updateShortcuts && settings.shortcuts) {
       window.electronAPI.updateShortcuts(settings.shortcuts);
     }
+    if (window.electronAPI?.setAutoClipboard) {
+      window.electronAPI.setAutoClipboard(settings.autoClipboard ?? true);
+    }
+    if (window.electronAPI?.getPinState) {
+      window.electronAPI.getPinState().then(pin => setIsPinned(pin));
+    }
+  }, []);
+
+  // Prevent Edge/WebView2 default browser context menu on Windows
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+        return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => window.removeEventListener('contextmenu', handleContextMenu);
   }, []);
 
   // Auto-clipboard background listener (Antinote feature)
@@ -98,7 +117,7 @@ export const App: React.FC = () => {
         } else {
           const newStreamNote: Note = {
             id: 'clipboard_stream',
-            content: `# 📋 Clipboard Stream\n\nAuto-captured clipboard history from macOS.${entry}`,
+            content: `# 📋 Clipboard Stream\n\nAuto-captured clipboard history.${entry}`,
             dbIndex: -1,
             isArchived: false,
             isLocked: false,
@@ -148,7 +167,7 @@ export const App: React.FC = () => {
             .trim();
           updated[streamIdx] = {
             ...streamNote,
-            content: cleanedContent || '# 📸 Screenshot Stream\n\nScreenshots and notes documentation from macOS.',
+            content: cleanedContent || '# 📸 Screenshot Stream\n\nScreenshots and notes documentation.',
             attachments: [...existingAttachments, newAttachment],
             lastModified: Date.now()
           };
@@ -156,7 +175,7 @@ export const App: React.FC = () => {
         } else {
           const newStreamNote: Note = {
             id: 'screenshots_stream',
-            content: '# 📸 Screenshot Stream\n\nScreenshots and notes documentation from macOS.',
+            content: '# 📸 Screenshot Stream\n\nScreenshots and notes documentation.',
             dbIndex: -2,
             isArchived: false,
             isLocked: false,
@@ -399,6 +418,20 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const handleAddAttachment = useCallback((attachment: Attachment) => {
+    setNotes(prev => prev.map((n, idx) => {
+      if (idx === currentIndex) {
+        const existing = n.attachments || [];
+        return {
+          ...n,
+          attachments: [...existing, attachment],
+          lastModified: Date.now()
+        };
+      }
+      return n;
+    }));
+  }, [currentIndex]);
+
   const handleRemoveAttachment = useCallback((attachmentId: string) => {
     setNotes(prev => prev.map((n, idx) => {
       if (idx === currentIndex && n.attachments) {
@@ -438,6 +471,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+
+      // Prevent accidental browser reload on F5 or Ctrl+R / Cmd+R
+      if (e.key === 'F5' || (isCmdOrCtrl && (e.key === 'r' || e.key === 'R'))) {
+        e.preventDefault();
+        return;
+      }
 
       if (e.key === 'Escape') {
         if (isSearchOpen) setIsSearchOpen(false);
@@ -569,6 +608,7 @@ export const App: React.FC = () => {
         onSelectClipboardStream={handleSelectClipboardStream}
         onSelectScreenshotStream={handleSelectScreenshotStream}
         onTriggerScreenshot={handleTriggerScreenshot}
+        onAddAttachment={handleAddAttachment}
         onRemoveAttachment={handleRemoveAttachment}
         onUpdateAttachmentCaption={handleUpdateAttachmentCaption}
         onTogglePin={handleTogglePin}

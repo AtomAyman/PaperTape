@@ -10,11 +10,20 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
-#[derive(Default)]
 pub struct AppState {
     pub is_pinned: AtomicBool,
     pub auto_clipboard: AtomicBool,
     pub last_tray_rect: Mutex<Option<tauri::Rect>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            is_pinned: AtomicBool::new(false),
+            auto_clipboard: AtomicBool::new(true),
+            last_tray_rect: Mutex::new(None),
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]

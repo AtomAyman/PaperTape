@@ -1,5 +1,6 @@
 import { Note, AppSettings, ShortcutsConfig } from '../types';
 import tutorialNotesData from '../data/tutorial_notes.json';
+import { isMac } from '../utils/platform';
 
 const NOTES_KEY = 'papertape_notes_v2';
 const SETTINGS_KEY = 'papertape_settings_v2';
@@ -71,7 +72,7 @@ export function loadNotes(): Note[] {
             const cleaned = n.content.replace(/\n*---\n\*\*\d+:\d+.*?\n!\[.*?\]\(.*?\)/g, '').trim();
             return {
               ...n,
-              content: cleaned || '# 📸 Screenshot Stream\n\nScreenshots and notes documentation from macOS.'
+              content: cleaned || '# 📸 Screenshot Stream\n\nScreenshots and notes documentation.'
             };
           }
           return n;
@@ -82,20 +83,35 @@ export function loadNotes(): Note[] {
     console.error('Failed to load notes from localStorage:', e);
   }
 
-  // Seed with clean interactive tutorial cards
-  const initialNotes: Note[] = (tutorialNotesData as any[]).map((n) => ({
-    id: n.id,
-    content: n.content || '',
-    dbIndex: n.dbIndex,
-    isArchived: Boolean(n.isArchived),
-    isLocked: Boolean(n.isLocked),
-    isPrivate: Boolean(n.isPrivate),
-    isSlotted: Boolean(n.isSlotted),
-    slotIndex: n.slotIndex !== undefined ? n.slotIndex : null,
-    isPermanent: true, // Tutorial cards are permanent
-    created: n.created || Date.now(),
-    lastModified: n.lastModified || Date.now()
-  }));
+  // Seed with clean interactive tutorial cards adapted to current platform
+  const initialNotes: Note[] = (tutorialNotesData as any[]).map((n) => {
+    let content = n.content || '';
+    if (!isMac) {
+      content = content
+        .replace(/⌘\+\[/g, 'Ctrl+[')
+        .replace(/native macOS notification/g, 'Windows notification')
+        .replace(/⌥1 - ⌥9/g, 'Alt+1 - Alt+9')
+        .replace(/⌥1 to ⌥9/g, 'Alt+1 to Alt+9')
+        .replace(/⌘ \+ N/g, 'Ctrl + N')
+        .replace(/⌘ \+ D/g, 'Ctrl + D')
+        .replace(/⌘ \+ P/g, 'Ctrl + P')
+        .replace(/⌘ \+ S/g, 'Ctrl + S')
+        .replace(/⌘ \+ F/g, 'Ctrl + F');
+    }
+    return {
+      id: n.id,
+      content,
+      dbIndex: n.dbIndex,
+      isArchived: Boolean(n.isArchived),
+      isLocked: Boolean(n.isLocked),
+      isPrivate: Boolean(n.isPrivate),
+      isSlotted: Boolean(n.isSlotted),
+      slotIndex: n.slotIndex !== undefined ? n.slotIndex : null,
+      isPermanent: true, // Tutorial cards are permanent
+      created: n.created || Date.now(),
+      lastModified: n.lastModified || Date.now()
+    };
+  });
 
   saveNotes(initialNotes);
   return initialNotes;

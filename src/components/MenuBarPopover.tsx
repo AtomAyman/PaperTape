@@ -26,7 +26,7 @@ import {
   Camera,
   Image as ImageIcon
 } from 'lucide-react';
-import { Note, AppSettings, SlotConfig } from '../types';
+import { Note, AppSettings, SlotConfig, Attachment } from '../types';
 import { ThemeColors, DEFAULT_SLOTS, EXTRA_SLOTS } from '../constants/themes';
 import { evaluateNoteContent, LineEvaluation } from '../services/engine';
 import { ReminderData } from '../services/reminderEngine';
@@ -52,6 +52,7 @@ interface MenuBarPopoverProps {
   onSelectClipboardStream?: () => void;
   onSelectScreenshotStream?: () => void;
   onTriggerScreenshot?: () => void;
+  onAddAttachment?: (attachment: Attachment) => void;
   onRemoveAttachment?: (attachmentId: string) => void;
   onUpdateAttachmentCaption?: (attachmentId: string, caption: string) => void;
   onTogglePin: () => void;
@@ -78,6 +79,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
   onSelectClipboardStream,
   onSelectScreenshotStream,
   onTriggerScreenshot,
+  onAddAttachment,
   onRemoveAttachment,
   onUpdateAttachmentCaption,
   onTogglePin,
@@ -96,6 +98,28 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamEndRef = useRef<HTMLDivElement>(null);
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      const file = e.clipboardData.files[0];
+      if (file.type.startsWith('image/')) {
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (onAddAttachment) {
+            onAddAttachment({
+              id: `att_${Date.now()}`,
+              name: file.name || 'Pasted Image',
+              type: file.type,
+              dataUrl: reader.result as string,
+              createdAt: Date.now()
+            });
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
 
   // Tot style live telemetry
   const wordCount = useMemo(() => {
@@ -904,6 +928,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
             ref={textareaRef}
             value={note.content}
             onChange={(e) => onUpdateContent(e.target.value)}
+            onPaste={handlePaste}
             placeholder="Start writing... (e.g. rate: 85, hours: 40, rate * hours = or sum, - [ ] task)"
             className={`w-full h-full bg-transparent resize-none outline-none font-mono text-[14.5px] leading-[32px] px-6 py-4 whitespace-pre-wrap break-words selection:bg-amber-500/30 overflow-y-auto ${paperClass}`}
             style={{

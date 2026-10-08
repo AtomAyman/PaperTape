@@ -41,10 +41,13 @@ export const CropOverlay: React.FC = () => {
 
   const boxRef = useRef(box);
   boxRef.current = box;
+  const isCapturingRef = useRef(false);
 
   const handleConfirm = useCallback(async (copyToClipboardOnly = false) => {
+    if (isCapturingRef.current) return;
     const currentBox = boxRef.current;
     if (currentBox.width < 10 || currentBox.height < 10) return;
+    isCapturingRef.current = true;
 
     const screenRect = {
       x: Math.round(originX + currentBox.x),
@@ -59,6 +62,8 @@ export const CropOverlay: React.FC = () => {
   }, [originX, originY]);
 
   const handleCancel = useCallback(async () => {
+    if (isCapturingRef.current) return;
+    isCapturingRef.current = true;
     if (window.electronAPI?.cancelCrop) {
       await window.electronAPI.cancelCrop();
     }
@@ -257,6 +262,7 @@ export const CropOverlay: React.FC = () => {
   return (
     <div
       className="fixed inset-0 w-full h-full select-none overflow-hidden cursor-crosshair"
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.005)' }}
       onMouseDown={handleBackdropMouseDown}
     >
       {/* Framing selection box */}

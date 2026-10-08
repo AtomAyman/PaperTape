@@ -403,8 +403,8 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
       if (!isResizingRef.current) return;
       const deltaX = moveEvent.screenX - startPosRef.current.x;
       const deltaY = moveEvent.screenY - startPosRef.current.y;
-      const newW = Math.max(360, Math.min(1000, startPosRef.current.w + deltaX));
-      const newH = Math.max(400, Math.min(1200, startPosRef.current.h + deltaY));
+      const newW = Math.max(320, Math.min(1000, startPosRef.current.w + deltaX));
+      const newH = Math.max(360, Math.min(1200, startPosRef.current.h + deltaY));
 
       if ((window as any).electronAPI?.resizeWindow) {
         (window as any).electronAPI.resizeWindow({ width: newW, height: newH });
@@ -441,7 +441,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
 
   return (
     <div 
-      className="w-full h-full flex flex-col select-none rounded-2xl border overflow-hidden shadow-2xl transition-colors duration-150"
+      className="w-full h-full flex flex-col select-none rounded-2xl border overflow-hidden transition-colors duration-150"
       style={{
         backgroundColor: theme.bg,
         borderColor: theme.border,

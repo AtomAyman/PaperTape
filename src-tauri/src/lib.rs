@@ -14,6 +14,7 @@ pub struct AppState {
     pub is_pinned: AtomicBool,
     pub auto_clipboard: AtomicBool,
     pub last_tray_rect: Mutex<Option<tauri::Rect>>,
+    pub last_saved_size: Mutex<Option<SavedWindowSize>>,
 }
 
 impl Default for AppState {
@@ -22,6 +23,7 @@ impl Default for AppState {
             is_pinned: AtomicBool::new(false),
             auto_clipboard: AtomicBool::new(true),
             last_tray_rect: Mutex::new(None),
+            last_saved_size: Mutex::new(None),
         }
     }
 }
@@ -41,10 +43,43 @@ pub struct ConfirmCropPayload {
     pub copy_to_clipboard_only: bool,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Copy)]
 pub struct WindowSize {
     pub width: f64,
     pub height: f64,
+}
+
+pub type SavedWindowSize = WindowSize;
+
+fn get_papertape_dir() -> PathBuf {
+    let base_dir = dirs::document_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join("Documents")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let dir = base_dir.join("PaperTape");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::create_dir_all(dir.join("screenshots"));
+    dir
+}
+
+fn load_saved_window_size() -> Option<SavedWindowSize> {
+    let path = get_papertape_dir().join(".window_size.json");
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(size) = serde_json::from_str::<SavedWindowSize>(&content) {
+                if size.width >= 320.0 && size.height >= 360.0 {
+                    return Some(size);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn save_window_size(size: SavedWindowSize) {
+    let path = get_papertape_dir().join(".window_size.json");
+    if let Ok(json) = serde_json::to_string_pretty(&size) {
+        let _ = std::fs::write(path, json);
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -71,21 +106,17 @@ pub struct ShortcutsPayload {
     pub clipboard_stream: Option<String>,
 }
 
-fn get_papertape_dir() -> PathBuf {
-    let base_dir = dirs::document_dir()
-        .or_else(|| dirs::home_dir().map(|h| h.join("Documents")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    let dir = base_dir.join("PaperTape");
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::create_dir_all(dir.join("screenshots"));
-    dir
-}
-
 fn position_flyout(win: &WebviewWindow, maybe_tray_rect: Option<&tauri::Rect>) {
     let Ok(scale) = win.scale_factor() else { return };
+    let (default_w, default_h) = if let Some(saved) = load_saved_window_size() {
+        (saved.width * scale, saved.height * scale)
+    } else {
+        (420.0 * scale, 500.0 * scale)
+    };
+
     let current_size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(
-        (780.0 * scale) as u32,
-        (560.0 * scale) as u32,
+        default_w as u32,
+        default_h as u32,
     ));
     let win_w = current_size.width as f64;
     let win_h = current_size.height as f64;
@@ -115,7 +146,18 @@ fn position_flyout(win: &WebviewWindow, maybe_tray_rect: Option<&tauri::Rect>) {
         };
 
         let tray_center_x = tray_x + (tray_w / 2.0);
-        let tx = tray_center_x - (win_w / 2.0);
+
+        // If tray is on the right half of the monitor (standard Windows tray & macOS menu bar):
+        // Anchor the right edge near the tray icon so expanding width grows to the left into open desktop space!
+        let is_right_half = tray_center_x > (mon_x + (mon_w / 2.0));
+        let tx = if is_right_half {
+            let anchor_right = tray_center_x + (28.0 * scale);
+            let max_right = mon_x + mon_w - (10.0 * scale);
+            let target_right = anchor_right.min(max_right);
+            target_right - win_w
+        } else {
+            tray_center_x - (win_w / 2.0)
+        };
 
         // Detect taskbar location: is the tray in bottom half of monitor?
         let is_bottom_bar = tray_y > (mon_y + (mon_h / 2.0));
@@ -196,9 +238,17 @@ fn get_pin_state(state: tauri::State<Arc<AppState>>) -> bool {
 }
 
 #[tauri::command]
-fn resize_window(app: AppHandle, size: WindowSize) -> Result<(), String> {
+fn resize_window(app: AppHandle, state: tauri::State<Arc<AppState>>, size: WindowSize) -> Result<(), String> {
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.set_size(tauri::LogicalSize::new(size.width, size.height));
+        let saved = SavedWindowSize {
+            width: size.width,
+            height: size.height,
+        };
+        if let Ok(mut lock) = state.last_saved_size.lock() {
+            *lock = Some(saved);
+        }
+        save_window_size(saved);
     }
     Ok(())
 }
@@ -540,19 +590,47 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             if let Some(main_win) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = window_vibrancy::apply_acrylic(&main_win, Some((20, 20, 25, 220)));
+                // Restore saved size from previous session if present
+                if let Some(saved) = load_saved_window_size() {
+                    let _ = main_win.set_size(tauri::LogicalSize::new(saved.width, saved.height));
                 }
 
-                // Auto-hide when clicking away unless pinned
+                // Auto-hide when clicking away unless pinned, and persist user-resized dimensions
                 let win_clone = main_win.clone();
                 let state_clone = Arc::clone(&app_state);
                 main_win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Focused(focused) = event {
-                        if !*focused && !state_clone.is_pinned.load(Ordering::SeqCst) {
-                            let _ = win_clone.hide();
+                    match event {
+                        tauri::WindowEvent::Focused(focused) => {
+                            if !*focused {
+                                if let Ok(mut lock) = state_clone.last_saved_size.lock() {
+                                    if let Some(size) = lock.take() {
+                                        save_window_size(size);
+                                    }
+                                }
+                                if !state_clone.is_pinned.load(Ordering::SeqCst) {
+                                    let _ = win_clone.hide();
+                                }
+                            }
                         }
+                        tauri::WindowEvent::Resized(physical_size) => {
+                            if let Ok(scale) = win_clone.scale_factor() {
+                                if scale > 0.0 {
+                                    let logical_w = physical_size.width as f64 / scale;
+                                    let logical_h = physical_size.height as f64 / scale;
+                                    if logical_w >= 320.0 && logical_h >= 360.0 {
+                                        let size = SavedWindowSize {
+                                            width: logical_w.round(),
+                                            height: logical_h.round(),
+                                        };
+                                        if let Ok(mut lock) = state_clone.last_saved_size.lock() {
+                                            *lock = Some(size);
+                                        }
+                                        save_window_size(size);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 });
             }

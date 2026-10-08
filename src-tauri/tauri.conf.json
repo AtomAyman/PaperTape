@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PaperTape",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "identifier": "com.papertape.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "PaperTape",
-        "width": 780,
-        "height": 560,
+        "width": 420,
+        "height": 500,
+        "minWidth": 320,
+        "minHeight": 360,
         "resizable": true,
         "fullscreen": false,
         "decorations": false,

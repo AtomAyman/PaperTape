@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.0.2"
+version = "1.0.3"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -31,6 +31,5 @@ chrono = "0.4"
 arboard = "3"
 image = "0.25"
 dirs = "7"
-window-vibrancy = "0.8.1"
 
 

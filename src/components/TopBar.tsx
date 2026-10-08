@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Note, AppSettings, SlotConfig } from '../types';
 import { DEFAULT_SLOTS, ThemeColors } from '../constants/themes';
+import { isMac } from '../utils/platform';
 
 interface TopBarProps {
   currentNote: Note;
@@ -91,7 +92,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="flex items-center space-x-2">
           <button
             onClick={onToggleDetach}
-            title={settings.isDetached ? "Dock to MacBook Notch" : "Detach as Floating HUD (⌘P)"}
+            title={settings.isDetached ? (isMac ? "Dock to MacBook Notch" : "Dock to Top") : `Detach as Floating HUD (${isMac ? '⌘P' : 'Ctrl+P'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             style={{ color: settings.isDetached ? theme.accent : theme.textMuted }}
           >
@@ -99,7 +100,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
           <button
             onClick={onOpenSettings}
-            title="Settings (⌘,)"
+            title={`Settings (${isMac ? '⌘,' : 'Ctrl+,'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             style={{ color: theme.textMuted }}
           >
@@ -115,7 +116,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             onClick={onPrev}
             disabled={noteIndex >= totalNotes - 1}
-            title="Previous Note (⌘[)"
+            title={`Previous Note (${isMac ? '⌘[' : 'Ctrl+['})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
             style={{ color: theme.text }}
           >
@@ -125,7 +126,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span 
             className="text-[11px] font-mono px-1.5 py-0.5 rounded cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
             onClick={onJumpToFront}
-            title="Click to Jump to Front (⌘1)"
+            title={`Click to Jump to Front (${isMac ? '⌘1' : 'Ctrl+1'})`}
             style={{ color: theme.text }}
           >
             {noteIndex + 1} / {totalNotes}
@@ -134,7 +135,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             onClick={onNext}
             disabled={noteIndex <= 0}
-            title="Next Note (⌘])"
+            title={`Next Note (${isMac ? '⌘]' : 'Ctrl+]'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
             style={{ color: theme.text }}
           >
@@ -143,7 +144,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           <button
             onClick={onPromoteToFront}
-            title="Promote this note to Front (⌘⇧1)"
+            title={`Promote this note to Front (${isMac ? '⌘⇧1' : 'Ctrl+Shift+1'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors ml-1"
             style={{ color: theme.textMuted }}
           >
@@ -179,7 +180,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="flex items-center space-x-1">
           <button
             onClick={onOpenSearch}
-            title="Search Notes (⌘F)"
+            title={`Search Notes (${isMac ? '⌘F' : 'Ctrl+F'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             style={{ color: theme.text }}
           >
@@ -188,7 +189,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           <button
             onClick={onNewNote}
-            title="New Scratch Note (⌘N)"
+            title={`New Scratch Note (${isMac ? '⌘N' : 'Ctrl+N'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             style={{ color: theme.accent }}
           >
@@ -197,7 +198,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           <button
             onClick={onDeleteNote}
-            title="Delete Note (⌘D)"
+            title={`Delete Note (${isMac ? '⌘D' : 'Ctrl+D'})`}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors opacity-60 hover:opacity-100 hover:text-red-500"
             style={{ color: theme.text }}
           >

@@ -30,6 +30,7 @@ import { Note, AppSettings, SlotConfig } from '../types';
 import { ThemeColors, DEFAULT_SLOTS, EXTRA_SLOTS } from '../constants/themes';
 import { evaluateNoteContent, LineEvaluation } from '../services/engine';
 import { ReminderData } from '../services/reminderEngine';
+import { isMac, screenshotKeyLabel, screenshotKeyHint } from '../utils/platform';
 import logoUrl from '../assets/logo.png';
 
 interface MenuBarPopoverProps {
@@ -496,7 +497,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
               <button
                 key={slot.index}
                 onClick={() => onSelectSlot(slot.index)}
-                title={`${slot.name} (Press ⌘${slot.index + 1})`}
+                title={`${slot.name} (${isMac ? '⌘' : 'Ctrl+'}${slot.index + 1})`}
                 className={`relative w-5 h-5 rounded-full transition-transform flex items-center justify-center font-mono text-[9px] font-bold text-white shadow-sm hover:scale-115 ${
                   isCurrent ? 'ring-2 ring-white scale-110 shadow-md' : 'opacity-80 hover:opacity-100'
                 }`}
@@ -524,7 +525,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           {onTriggerScreenshot && (
             <button
               onClick={onTriggerScreenshot}
-              title="Crop Screen Area (⌥⇧S)"
+              title={`Crop Screen Area (${screenshotKeyHint})`}
               className="p-1 rounded transition-colors hover:scale-110 active:scale-95"
               style={{ color: theme.textMuted }}
             >
@@ -562,7 +563,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
 
           <button
             onClick={onTogglePin}
-            title={isPinned ? "Pinned: Window stays open" : "Unpinned: Closes when clicking away (⌘P)"}
+            title={isPinned ? "Pinned: Window stays open" : `Unpinned: Closes when clicking away (${isMac ? '⌘P' : 'Ctrl+P'})`}
             className="p-1 rounded transition-colors"
             style={{
               color: isPinned ? theme.accent : theme.textMuted,
@@ -574,7 +575,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
 
           <button
             onClick={onOpenSettings}
-            title="Settings (⌘,)"
+            title={`Settings (${isMac ? '⌘,' : 'Ctrl+,'})`}
             className="p-1 rounded transition-colors"
             style={{ color: theme.textMuted }}
           >
@@ -597,7 +598,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           <button
             onClick={onPrev}
             disabled={noteIndex >= totalNotes - 1}
-            title="Previous Card (⌘[)"
+            title={`Previous Card (${isMac ? '⌘[' : 'Ctrl+['})`}
             className="p-1 rounded disabled:opacity-30 transition-colors"
             style={{ color: theme.textMuted }}
           >
@@ -606,7 +607,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
 
           <span 
             onClick={onJumpToFront}
-            title="Click to Jump to Front (⌘1)"
+            title={`Click to Jump to Front (${isMac ? '⌘1' : 'Ctrl+1'})`}
             className="text-[11px] font-mono px-2 py-0.5 rounded cursor-pointer"
             style={{ color: theme.text }}
           >
@@ -616,7 +617,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           <button
             onClick={onNext}
             disabled={noteIndex <= 0}
-            title="Next Card (⌘])"
+            title={`Next Card (${isMac ? '⌘]' : 'Ctrl+]'})`}
             className="p-1 rounded disabled:opacity-30 transition-colors"
             style={{ color: theme.textMuted }}
           >
@@ -625,7 +626,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
 
           <button
             onClick={onPromoteToFront}
-            title="Promote card to front (⌘⇧1)"
+            title={`Promote card to front (${isMac ? '⌘⇧1' : 'Ctrl+Shift+1'})`}
             className="p-1 rounded transition-colors ml-1"
             style={{ color: theme.textMuted }}
           >
@@ -660,7 +661,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
         {/* Search */}
         <button
           onClick={onOpenSearch}
-          title="Search Notes (⌘F)"
+          title={`Search Notes (${isMac ? '⌘F' : 'Ctrl+F'})`}
           className="p-1 rounded transition-colors"
           style={{ color: theme.textMuted }}
         >
@@ -868,7 +869,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
                     No Screenshots Captured Yet
                   </div>
                   <p className="text-xs opacity-70 max-w-xs mx-auto leading-relaxed" style={{ color: theme.textMuted }}>
-                    Press <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono font-bold">⌥⇧S</kbd> anywhere on your Mac to crop any screen area, and it will automatically be placed right here in your notes.
+                    Press <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono font-bold">{screenshotKeyLabel}</kbd> anywhere on your {isMac ? 'Mac' : 'PC'} to crop any screen area, and it will automatically be placed right here in your notes.
                   </p>
                   {onTriggerScreenshot && (
                     <button
@@ -891,7 +892,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
                     style={{ borderColor: theme.accent, color: theme.accent }}
                   >
                     <Camera className="w-4 h-4" />
-                    <span>+ Crop Another Area (⌥⇧S)</span>
+                    <span>+ Crop Another Area ({screenshotKeyLabel})</span>
                   </button>
                 </div>
               )}
@@ -1127,7 +1128,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           {/* New Note */}
           <button
             onClick={onNewNote}
-            title="New Scratch Card (⌘N)"
+            title={`New Scratch Card (${isMac ? '⌘N' : 'Ctrl+N'})`}
             className="w-7 h-7 rounded-full flex items-center justify-center transition-transform hover:scale-105 active:scale-95 shadow-sm"
             style={{
               backgroundColor: theme.badgeBg,
@@ -1140,7 +1141,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           {/* Delete Note */}
           <button
             onClick={onDeleteNote}
-            title="Delete Card (⌘D)"
+            title={`Delete Card (${isMac ? '⌘D' : 'Ctrl+D'})`}
             className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
             style={{
               backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
@@ -1153,7 +1154,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           {/* Copy */}
           <button
             onClick={handleCopy}
-            title="Copy Note Text (⌘C)"
+            title={`Copy Note Text (${isMac ? '⌘C' : 'Ctrl+C'})`}
             className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
             style={{
               backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
@@ -1192,7 +1193,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
             className="text-[10px] font-mono tracking-wider whitespace-nowrap shrink-0 opacity-60 px-2"
             style={{ color: theme.textMuted }}
           >
-            ⌘1–5 SWITCH
+            {isMac ? '⌘1–5 SWITCH' : 'Ctrl+1–5 SWITCH'}
           </div>
         )}
 

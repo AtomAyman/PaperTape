@@ -484,8 +484,11 @@ export const App: React.FC = () => {
         return;
       }
 
-      if ((e.altKey && e.shiftKey && (e.key === 's' || e.key === 'S')) || 
-          (isCmdOrCtrl && e.shiftKey && (e.key === 's' || e.key === 'S'))) {
+      if (
+        e.key === 'PrintScreen' ||
+        (e.altKey && e.shiftKey && (e.key === 's' || e.key === 'S')) || 
+        (isCmdOrCtrl && e.shiftKey && (e.key === 's' || e.key === 'S'))
+      ) {
         e.preventDefault();
         handleTriggerScreenshot();
         return;

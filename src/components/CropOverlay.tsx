@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, Copy, X } from 'lucide-react';
+import { isMac } from '../utils/platform';
 
 type DragMode = 'move' | 'draw' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null;
 
@@ -329,15 +330,15 @@ export const CropOverlay: React.FC = () => {
           <kbd className="ml-1 text-[10px] bg-black/20 text-neutral-900 px-1 py-0.5 rounded font-mono font-normal">↵</kbd>
         </button>
 
-        {/* 📋 Copy to Clipboard (⌘C) */}
+        {/* 📋 Copy to Clipboard */}
         <button
           onClick={() => handleConfirm(true)}
           className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/25 text-white text-xs border border-white/10 transition-colors cursor-pointer shrink-0"
-          title="Copy to Clipboard (⌘C)"
+          title={`Copy to Clipboard (${isMac ? '⌘C' : 'Ctrl+C'})`}
         >
           <Copy className="w-3.5 h-3.5" />
           <span>Copy</span>
-          <kbd className="ml-1 text-[10px] bg-white/15 text-white/90 px-1 py-0.5 rounded font-mono">⌘C</kbd>
+          <kbd className="ml-1 text-[10px] bg-white/15 text-white/90 px-1 py-0.5 rounded font-mono">{isMac ? '⌘C' : 'Ctrl+C'}</kbd>
         </button>
 
         {/* ❌ Cancel (Esc) */}

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -14,6 +14,7 @@ use tauri_plugin_notification::NotificationExt;
 pub struct AppState {
     pub is_pinned: AtomicBool,
     pub auto_clipboard: AtomicBool,
+    pub last_tray_rect: Mutex<Option<tauri::Rect>>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
@@ -71,60 +72,100 @@ fn get_papertape_dir() -> PathBuf {
     dir
 }
 
-fn position_below_tray(win: &WebviewWindow, tray_rect: &tauri::Rect) {
+fn position_flyout(win: &WebviewWindow, maybe_tray_rect: Option<&tauri::Rect>) {
     let Ok(scale) = win.scale_factor() else { return };
     let current_size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(
         (780.0 * scale) as u32,
         (560.0 * scale) as u32,
     ));
     let win_w = current_size.width as f64;
+    let win_h = current_size.height as f64;
 
-    let (tray_x, tray_y) = match tray_rect.position {
-        tauri::Position::Physical(p) => (p.x as f64, p.y as f64),
-        tauri::Position::Logical(l) => (l.x * scale, l.y * scale),
-    };
-    let (tray_w, tray_h) = match tray_rect.size {
-        tauri::Size::Physical(s) => (s.width as f64, s.height as f64),
-        tauri::Size::Logical(s) => (s.width * scale, s.height * scale),
-    };
+    let monitor = win
+        .current_monitor()
+        .or_else(|_| win.primary_monitor())
+        .ok()
+        .flatten();
 
-    let tray_center_x = tray_x + (tray_w / 2.0);
-    let target_x = tray_center_x - (win_w / 2.0);
-    let target_y = tray_y + tray_h + (4.0 * scale);
-
-    let clamped_x = if let Ok(Some(monitor)) = win.current_monitor().or_else(|_| win.primary_monitor()) {
-        let m_pos = monitor.position();
-        let m_size = monitor.size();
-        let min_x = m_pos.x as f64 + (10.0 * scale);
-        let max_x = (m_pos.x + m_size.width as i32) as f64 - win_w - (10.0 * scale);
-        target_x.max(min_x).min(max_x)
+    let (mon_x, mon_y, mon_w, mon_h) = if let Some(ref m) = monitor {
+        let p = m.position();
+        let s = m.size();
+        (p.x as f64, p.y as f64, s.width as f64, s.height as f64)
     } else {
-        target_x
+        (0.0, 0.0, 1920.0 * scale, 1080.0 * scale)
     };
+
+    let (target_x, target_y) = if let Some(tray_rect) = maybe_tray_rect {
+        let (tray_x, tray_y) = match tray_rect.position {
+            tauri::Position::Physical(p) => (p.x as f64, p.y as f64),
+            tauri::Position::Logical(l) => (l.x * scale, l.y * scale),
+        };
+        let (tray_w, tray_h) = match tray_rect.size {
+            tauri::Size::Physical(s) => (s.width as f64, s.height as f64),
+            tauri::Size::Logical(s) => (s.width * scale, s.height * scale),
+        };
+
+        let tray_center_x = tray_x + (tray_w / 2.0);
+        let tx = tray_center_x - (win_w / 2.0);
+
+        // Detect taskbar location: is the tray in bottom half of monitor?
+        let is_bottom_bar = tray_y > (mon_y + (mon_h / 2.0));
+        let ty = if is_bottom_bar {
+            // Standard Windows taskbar: pop UP directly above tray icon
+            tray_y - win_h - (8.0 * scale)
+        } else {
+            // macOS menu bar or top taskbar: pop DOWN directly below tray icon
+            tray_y + tray_h + (8.0 * scale)
+        };
+
+        (tx, ty)
+    } else {
+        #[cfg(target_os = "windows")]
+        {
+            // Windows default corner: bottom right right above the taskbar
+            (
+                mon_x + mon_w - win_w - (16.0 * scale),
+                mon_y + mon_h - win_h - (60.0 * scale),
+            )
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // macOS default corner: top right below menu bar
+            (
+                mon_x + mon_w - win_w - (24.0 * scale),
+                mon_y + (32.0 * scale),
+            )
+        }
+    };
+
+    // Clamp coordinates safely within the active monitor bounds
+    let margin = 10.0 * scale;
+    let min_x = mon_x + margin;
+    let max_x = (mon_x + mon_w - win_w - margin).max(min_x);
+    let min_y = mon_y + margin;
+    let max_y = (mon_y + mon_h - win_h - margin).max(min_y);
+
+    let clamped_x = target_x.max(min_x).min(max_x);
+    let clamped_y = target_y.max(min_y).min(max_y);
 
     let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         clamped_x as i32,
-        target_y as i32,
+        clamped_y as i32,
     )));
 }
 
-fn position_at_top_right(win: &WebviewWindow) {
-    let Ok(scale) = win.scale_factor() else { return };
-    let current_size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(
-        (780.0 * scale) as u32,
-        (560.0 * scale) as u32,
-    ));
-    let win_w = current_size.width as f64;
+fn show_main_window(win: &WebviewWindow, maybe_tray_rect: Option<&tauri::Rect>) {
+    position_flyout(win, maybe_tray_rect);
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
 
-    if let Ok(Some(monitor)) = win.current_monitor().or_else(|_| win.primary_monitor()) {
-        let m_pos = monitor.position();
-        let m_size = monitor.size();
-        let target_x = (m_pos.x + m_size.width as i32) as f64 - win_w - (30.0 * scale);
-        let target_y = m_pos.y as f64 + (32.0 * scale);
-        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
-            target_x as i32,
-            target_y as i32,
-        )));
+fn toggle_main_window(win: &WebviewWindow, maybe_tray_rect: Option<&tauri::Rect>) {
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.hide();
+    } else {
+        show_main_window(win, maybe_tray_rect);
     }
 }
 
@@ -292,21 +333,20 @@ fn capture_screenshot(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn cancel_crop(app: AppHandle) -> Result<(), String> {
+fn cancel_crop(app: AppHandle, state: tauri::State<Arc<AppState>>) -> Result<(), String> {
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
         let _ = crop_win.destroy();
     }
     if let Some(main_win) = app.get_webview_window("main") {
-        position_at_top_right(&main_win);
-        let _ = main_win.show();
-        let _ = main_win.set_focus();
+        let last_rect = state.last_tray_rect.lock().ok().and_then(|r| r.clone());
+        show_main_window(&main_win, last_rect.as_ref());
     }
     Ok(())
 }
 
 #[tauri::command]
-fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), String> {
-    // Destroy crop overlay window before capture so it doesn't appear in the image
+fn confirm_crop(app: AppHandle, state: tauri::State<Arc<AppState>>, payload: ConfirmCropPayload) -> Result<(), String> {
+    // Destroy crop overlay window before capture so it does not appear in the image
     if let Some(crop_win) = app.get_webview_window("crop-overlay") {
         let _ = crop_win.destroy();
     }
@@ -317,6 +357,8 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
 
     let dir = get_papertape_dir();
     let screenshots_dir = dir.join("screenshots");
+    let _ = std::fs::create_dir_all(&screenshots_dir);
+
     let now = chrono::Local::now();
     let filename = format!(
         "Screen Shot {} at {}.png",
@@ -343,28 +385,51 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
 
     #[cfg(target_os = "windows")]
     {
+        let scale = app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0);
+
         let (x, y, w, h) = if let Some(ref r) = payload.rect {
-            (r.x as i32, r.y as i32, r.width as i32, r.height as i32)
+            (
+                (r.x * scale).round() as i32,
+                (r.y * scale).round() as i32,
+                (r.width * scale).round().max(10.0) as i32,
+                (r.height * scale).round().max(10.0) as i32,
+            )
         } else {
-            (0, 0, 1920, 1080)
+            let (mw, mh) = app
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .map(|m| (m.size().width as i32, m.size().height as i32))
+                .unwrap_or((1920, 1080));
+            (0, 0, mw, mh)
         };
+
+        let file_path_str = file_path.to_string_lossy().replace('\'', "''");
         let ps_cmd = format!(
-            "Add-Type -AssemblyName System.Drawing; \
+            "$ErrorActionPreference = 'Stop'; \
+             Add-Type -AssemblyName System.Drawing; \
              $bmp = New-Object System.Drawing.Bitmap({}, {}); \
              $g = [System.Drawing.Graphics]::FromImage($bmp); \
              $g.CopyFromScreen({}, {}, 0, 0, $bmp.Size); \
              $bmp.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png); \
              $g.Dispose(); $bmp.Dispose();",
-            w, h, x, y, file_path.to_string_lossy().replace('\\', "\\\\")
+            w, h, x, y, file_path_str
         );
-        let status = std::process::Command::new("powershell")
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg(&ps_cmd)
-            .status()
+
+        let output = std::process::Command::new("powershell")
+            .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
+            .output()
             .map_err(|e| format!("PowerShell screen capture failed: {}", e))?;
-        if !status.success() {
-            return Err("Screen capture failed on Windows".to_string());
+
+        if !output.status.success() {
+            let err_text = String::from_utf8_lossy(&output.stderr);
+            log::error!("PowerShell screen capture failed: {}", err_text);
+            return Err(format!("Windows screen capture failed: {}", err_text));
         }
     }
 
@@ -392,7 +457,7 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
         }
     }
 
-    // Emit event to main window and re-show it
+    // Emit event to main window and re-show it right at the tray position
     let timestamp = now.format("%I:%M %p").to_string();
     let shot_event = serde_json::json!({
         "filePath": file_path.to_string_lossy().to_string(),
@@ -402,9 +467,8 @@ fn confirm_crop(app: AppHandle, payload: ConfirmCropPayload) -> Result<(), Strin
 
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.emit("screenshot-captured", shot_event);
-        position_at_top_right(&main_win);
-        let _ = main_win.show();
-        let _ = main_win.set_focus();
+        let last_rect = state.last_tray_rect.lock().ok().and_then(|r| r.clone());
+        show_main_window(&main_win, last_rect.as_ref());
     }
 
     Ok(())
@@ -486,20 +550,25 @@ pub fn run() {
 
             // Register default global shortcuts
             let app_for_toggle = app_handle.clone();
+            let state_for_toggle = Arc::clone(&app_state);
             let _ = app.global_shortcut().on_shortcut("Alt+A", move |_app, _sc, event| {
                 if event.state() == ShortcutState::Pressed {
                     if let Some(win) = app_for_toggle.get_webview_window("main") {
-                        if win.is_visible().unwrap_or(false) {
-                            let _ = win.hide();
-                        } else {
-                            position_at_top_right(&win);
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
+                        let last_rect = state_for_toggle.last_tray_rect.lock().ok().and_then(|r| r.clone());
+                        toggle_main_window(&win, last_rect.as_ref());
                     }
                 }
             });
 
+            // Register PrintScreen (Windows hardware screen capture key)
+            let app_for_prt = app_handle.clone();
+            let _ = app.global_shortcut().on_shortcut("PrintScreen", move |_app, _sc, event| {
+                if event.state() == ShortcutState::Pressed {
+                    let _ = capture_screenshot(app_for_prt.clone());
+                }
+            });
+
+            // Register Alt+Shift+S (cross-platform fallback)
             let app_for_crop = app_handle.clone();
             let _ = app.global_shortcut().on_shortcut("Alt+Shift+S", move |_app, _sc, event| {
                 if event.state() == ShortcutState::Pressed {
@@ -507,7 +576,7 @@ pub fn run() {
                 }
             });
 
-            // Setup Tray Icon
+            // Setup Tray Menu
             let toggle_item = MenuItem::with_id(app, "toggle", "Toggle PaperTape", true, None::<&str>)?;
             let crop_item = MenuItem::with_id(app, "crop", "Interactive Screenshot", true, None::<&str>)?;
             let vault_item = MenuItem::with_id(app, "vault", "Open Documents Folder", true, None::<&str>)?;
@@ -515,20 +584,18 @@ pub fn run() {
 
             let menu = Menu::with_items(app, &[&toggle_item, &crop_item, &vault_item, &quit_item])?;
 
+            let state_for_menu = Arc::clone(&app_state);
+            let state_for_tray = Arc::clone(&app_state);
+
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "toggle" => {
                         if let Some(win) = app.get_webview_window("main") {
-                            if win.is_visible().unwrap_or(false) {
-                                let _ = win.hide();
-                            } else {
-                                position_at_top_right(&win);
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
+                            let last_rect = state_for_menu.last_tray_rect.lock().ok().and_then(|r| r.clone());
+                            toggle_main_window(&win, last_rect.as_ref());
                         }
                     }
                     "crop" => {
@@ -542,7 +609,7 @@ pub fn run() {
                     }
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
+                .on_tray_icon_event(move |tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -550,15 +617,12 @@ pub fn run() {
                         ..
                     } = event
                     {
+                        if let Ok(mut lock) = state_for_tray.last_tray_rect.lock() {
+                            *lock = Some(rect.clone());
+                        }
                         let app = tray.app_handle();
                         if let Some(win) = app.get_webview_window("main") {
-                            if win.is_visible().unwrap_or(false) {
-                                let _ = win.hide();
-                            } else {
-                                position_below_tray(&win, &rect);
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
+                            toggle_main_window(&win, Some(&rect));
                         }
                     }
                 })

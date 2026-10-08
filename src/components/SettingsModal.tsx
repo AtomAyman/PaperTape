@@ -3,27 +3,42 @@ import { X, Download, FileText, Palette, Clock, Volume2, ShieldCheck, Clipboard,
 import { AppSettings, Note, AppTheme, PaperType, ShortcutsConfig } from '../types';
 import { THEMES, ThemeColors } from '../constants/themes';
 import { exportNotesToCSV, exportNotesToMarkdownZip, DEFAULT_SHORTCUTS } from '../services/storage';
+import { isMac } from '../utils/platform';
 import logoUrl from '../assets/logo.png';
 
 export function formatShortcutDisplay(accelerator: string): string {
   if (!accelerator) return 'None';
-  const parts = accelerator.split('+');
-  let result = '';
-  for (const part of parts) {
-    const p = part.trim().toLowerCase();
-    if (p === 'cmdorctrl' || p === 'commandorcontrol' || p === 'cmd' || p === 'command') {
-      result += '⌘';
-    } else if (p === 'alt' || p === 'option') {
-      result += '⌥';
-    } else if (p === 'shift') {
-      result += '⇧';
-    } else if (p === 'ctrl' || p === 'control') {
-      result += '⌃';
-    } else {
-      result += part.toUpperCase();
+  if (isMac) {
+    const parts = accelerator.split('+');
+    let result = '';
+    for (const part of parts) {
+      const p = part.trim().toLowerCase();
+      if (p === 'cmdorctrl' || p === 'commandorcontrol' || p === 'cmd' || p === 'command') {
+        result += '⌘';
+      } else if (p === 'alt' || p === 'option') {
+        result += '⌥';
+      } else if (p === 'shift') {
+        result += '⇧';
+      } else if (p === 'ctrl' || p === 'control') {
+        result += '⌃';
+      } else {
+        result += part.toUpperCase();
+      }
     }
+    return result;
+  } else {
+    return accelerator
+      .split('+')
+      .map(part => {
+        const p = part.trim().toLowerCase();
+        if (p === 'cmdorctrl' || p === 'commandorcontrol' || p === 'cmd' || p === 'ctrl' || p === 'control') return 'Ctrl';
+        if (p === 'alt' || p === 'option') return 'Alt';
+        if (p === 'shift') return 'Shift';
+        if (p === 'printscreen' || p === 'prtscn' || p === 'print') return 'PrtScn';
+        return part.trim().toUpperCase();
+      })
+      .join('+');
   }
-  return result;
 }
 
 interface SettingsModalProps {
@@ -73,9 +88,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       else if (key === 'ARROWDOWN') key = 'Down';
       else if (key === 'ARROWLEFT') key = 'Left';
       else if (key === 'ARROWRIGHT') key = 'Right';
+      else if (key === 'PRINTSCREEN') key = 'PrintScreen';
 
-      // Global hotkeys require at least one modifier unless function key
-      if (parts.length === 0 && !key.startsWith('F')) {
+      // Global hotkeys require at least one modifier unless function key or PrintScreen
+      if (parts.length === 0 && !key.startsWith('F') && key !== 'PrintScreen') {
         return;
       }
 
@@ -120,7 +136,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     {
       key: 'interactiveCrop',
       name: 'Interactive Screen Crop',
-      description: '⌘⇧5-style framing box with 8 resize handles'
+      description: isMac
+        ? '⌘⇧5-style framing box with 8 resize handles'
+        : 'PrtScn framing box with 8 resize handles'
     },
     {
       key: 'screenshotStream',
